@@ -3,13 +3,13 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import type { DashboardDto, OrderSummaryDto } from '@vyra/shared';
+import type { DashboardDto, FunnelDto, OrderSummaryDto } from '@vyra/shared';
 import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '@vyra/ui';
-import { IndianRupee, ShoppingBag, Users, Shirt, Boxes, AlertTriangle, PackageX, Wallet, CalendarClock, Clock, ArrowRight } from 'lucide-react';
+import { IndianRupee, ShoppingBag, Users, Shirt, Boxes, AlertTriangle, PackageX, Wallet, CalendarClock, Clock, ArrowRight, Filter } from 'lucide-react';
 import { useApi } from '@/lib/swr';
 import { useAuth } from '@/features/auth/auth-context';
 import { PERM } from '@/lib/permissions';
-import { formatDate, formatDateTime, formatINR, formatNumber } from '@/lib/format';
+import { dayToIso, daysAgo, formatDate, formatDateTime, formatINR, formatNumber, isoDay } from '@/lib/format';
 import { ORDER_STATUS_LABEL, ORDER_STATUS_TONE } from '@/lib/status';
 import { ErrorState, PageHeader, StatCard, StatusBadge } from '@/components/ui/feedback';
 import { Segmented } from '@/components/ui/controls';
@@ -61,6 +61,8 @@ function Dashboard() {
   const { data, error, isLoading, mutate } = useApi<DashboardDto>('/dashboard', undefined, { refreshInterval: 60_000 });
   const [metric, setMetric] = React.useState<'revenue' | 'orders'>('revenue');
   const loading = isLoading && !data;
+  const [funnelRange] = React.useState(() => ({ from: dayToIso(daysAgo(29), 'start'), to: dayToIso(isoDay(new Date()), 'end') }));
+  const funnel = useApi<FunnelDto>('/analytics/funnel', funnelRange);
 
   const series = React.useMemo(
     () => (data?.revenueSeries ?? []).map((p) => ({ label: formatDate(p.date).replace(/ \d{4}$/, ''), value: metric === 'revenue' ? p.revenue : p.orders })),
@@ -86,6 +88,7 @@ function Dashboard() {
         <StatCard loading={loading} label="Low stock" icon={<AlertTriangle />} value={data ? formatNumber(data.inventory.lowStock) : ''} tone={data && data.inventory.lowStock > 0 ? 'warning' : 'default'} hint="variants at/below threshold" />
         <StatCard loading={loading} label="Out of stock" icon={<PackageX />} value={data ? formatNumber(data.inventory.outOfStock) : ''} tone={data && data.inventory.outOfStock > 0 ? 'danger' : 'default'} hint="variants" />
         <StatCard loading={loading} label="Inventory valuation" icon={<Wallet />} value={data ? formatINR(data.inventory.valuation) : ''} hint="at cost" />
+        <ConversionTile funnel={funnel.data} loading={funnel.isLoading && !funnel.data} failed={!!funnel.error && !funnel.data} />
       </section>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-3">
@@ -185,5 +188,21 @@ function Dashboard() {
         />
       </div>
     </>
+  );
+}
+
+/** "Conversion (30d)" tile: ordered ÷ viewed-a-product sessions over the last 30 days; links to the Conversion page. */
+function ConversionTile({ funnel, loading, failed }: { funnel: FunnelDto | undefined; loading: boolean; failed: boolean }) {
+  const viewed = funnel?.steps.find((s) => s.step === 'PRODUCT_VIEW')?.sessions ?? 0;
+  return (
+    <Link href="/analytics/conversion" className="block rounded-lg hover:[&>div]:border-border-strong" aria-label="Conversion (30d), open conversion funnel">
+      <StatCard
+        loading={loading}
+        label="Conversion (30d)"
+        icon={<Filter />}
+        value={failed ? '—' : funnel && viewed > 0 ? `${funnel.conversionRate.toFixed(1)}%` : '—'}
+        hint={failed ? 'Could not load' : funnel ? (viewed > 0 ? `${formatNumber(viewed)} shopping sessions` : 'Tracking just started') : undefined}
+      />
+    </Link>
   );
 }

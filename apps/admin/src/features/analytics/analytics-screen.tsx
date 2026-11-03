@@ -2,7 +2,7 @@
 import * as React from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Skeleton } from '@vyra/ui';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '@vyra/ui';
 import { Download } from 'lucide-react';
 import type { CodAnalyticsDto, ProductReturnRateDto } from '@vyra/shared';
 import { CodKpis } from '@/features/cod/cod-kpis';
@@ -18,9 +18,9 @@ import { ErrorState, PageHeader, StatCard } from '@/components/ui/feedback';
 import { Segmented } from '@/components/ui/controls';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/menu';
 import { BarList, TimeSeriesChart } from '@/features/charts/time-series-chart';
+import { DateRangeControl } from '@/features/analytics/date-range';
 
 type Granularity = 'day' | 'week' | 'month';
-const PRESETS = [{ label: '7d', days: 7 }, { label: '30d', days: 30 }, { label: '90d', days: 90 }, { label: '12m', days: 365 }];
 
 const productCols: ColumnDef<ProductAnalyticsRow, unknown>[] = [
   { header: 'Product', accessorKey: 'name', cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
@@ -77,7 +77,7 @@ export function AnalyticsScreen() {
     <>
       <PageHeader
         title="Analytics"
-        description="Sales, product performance and stock valuation."
+        description={<>Sales, product performance and stock valuation. Shopper funnel lives in <Link href={`/analytics/conversion?from=${f.from}&to=${f.to}`} className="font-semibold text-fg underline-offset-2 hover:underline">Conversion</Link>.</>}
         actions={
           <Menu>
             <MenuTrigger asChild><Button variant="outline" size="sm"><Download /> Export</Button></MenuTrigger>
@@ -95,16 +95,12 @@ export function AnalyticsScreen() {
         }
       />
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2">
-          <Input type="date" aria-label="From" value={f.from} max={f.to} onChange={(e) => setF({ from: e.target.value })} className="h-9 w-40" />
-          <span className="text-xs text-muted">to</span>
-          <Input type="date" aria-label="To" value={f.to} min={f.from} onChange={(e) => setF({ to: e.target.value })} className="h-9 w-40" />
-        </div>
-        <div className="flex gap-1">
-          {PRESETS.map((p) => (
-            <Button key={p.label} variant="ghost" size="sm" onClick={() => setF({ from: daysAgo(p.days - 1), to: isoDay(new Date()), granularity: p.days > 90 ? 'month' : p.days > 31 ? 'week' : 'day' })}>{p.label}</Button>
-          ))}
-        </div>
+        <DateRangeControl
+          from={f.from}
+          to={f.to}
+          onChange={setF}
+          onPreset={(r, days) => setF({ ...r, granularity: days > 90 ? 'month' : days > 31 ? 'week' : 'day' })}
+        />
         <Segmented size="sm" label="Granularity" value={f.granularity as Granularity} onChange={(granularity) => setF({ granularity })} options={[{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }]} />
       </div>
 
