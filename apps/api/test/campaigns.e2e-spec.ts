@@ -201,6 +201,8 @@ describe('Festival campaigns, offers and the discount ledger (integration)', () 
     await admin.post(`/api/v1/admin/orders/${order.id}/status`).set(H).send({ status: 'DELIVERED' }).expect(200);
 
     const [i1, i2] = detail.items as { id: string; lineTotal: number }[];
+    const delivered = (await shopper.get(`/api/v1/orders/${order.number}`).expect(200)).body.data;
+    expect(delivered.exchangeOptions[i1!.id].length).toBeGreaterThan(0);
     const preview = (await shopper.post(`/api/v1/orders/${order.number}/return-preview`).set(H).send({ items: [{ orderItemId: i1!.id, quantity: 1 }] }).expect(200)).body.data;
     expect(preview.itemsValue).toBe(i1!.lineTotal);
     expect(preview.deductions).toHaveLength(1);
@@ -253,6 +255,25 @@ describe('Festival campaigns, offers and the discount ledger (integration)', () 
     expect((await pdp(p.slug)).variants[1].price).toBe(799);
     await admin.post(`/api/v1/admin/campaigns/${c.id}/resume`).set(H).send({}).expect(400); // raise the budget first
     expect((await admin.get('/api/v1/admin/inventory/reconcile').expect(200)).body.data.consistent).toBe(true);
+  });
+
+  it('lets items bought at a sale price be exchanged for another size', async () => {
+    const p = await newProduct();
+    const [m, l] = p.variants;
+    const c = await campaign();
+    await admin.put(`/api/v1/admin/campaigns/${c.id}/prices`).set(H).send({ items: [{ variantId: m!.id, salePrice: 599 }] }).expect(200);
+    await admin.post(`/api/v1/admin/campaigns/${c.id}/publish`).set(H).expect(200);
+    const s = await registerCustomer(app, 'swap@test.local');
+    await s.post('/api/v1/cart/items').set(H).send({ variantId: m!.id, quantity: 1 }).expect(201);
+    const order = (await s.post('/api/v1/checkout').set(H).send({ address: address('9123400010'), paymentMethod: 'COD', idempotencyKey: randomUUID() }).expect(201)).body.data.order;
+    await admin.post(`/api/v1/admin/orders/${order.id}/confirm-cod`).set(H).send({}).expect(200);
+    await admin.post(`/api/v1/admin/orders/${order.id}/status`).set(H).send({ status: 'PACKED' }).expect(200);
+    await admin.post(`/api/v1/admin/orders/${order.id}/shipment`).set(H).send({ provider: 'MANUAL' }).expect(200);
+    await admin.post(`/api/v1/admin/orders/${order.id}/status`).set(H).send({ status: 'DELIVERED' }).expect(200);
+    const d = (await s.get(`/api/v1/orders/${order.number}`).expect(200)).body.data;
+    expect(d.items[0].unitPrice).toBe(599);
+    expect(d.exchangeOptions[d.items[0].id].map((o: { variantId: string }) => o.variantId)).toContain(l!.id);
+    await s.post('/api/v1/returns').set(H).send({ orderId: order.id, type: 'EXCHANGE', reason: 'SIZE_ISSUE', items: [{ orderItemId: d.items[0].id, quantity: 1, exchangeVariantId: l!.id }] }).expect(201);
   });
 
   it('sends opted-in reminders once per phase', async () => {

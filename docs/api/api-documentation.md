@@ -224,3 +224,35 @@ Typed admin DTOs now exist for suppliers, purchase orders, scan history, staff u
 
 ### Staff
 | `GET /admin/analytics/funnel?from&to` → `FunnelDto` (steps with unique sessions, conversion/abandonment, byDevice, bySource first-touch incl. revenue, products view→bag, tryOn usage incl. today vs daily limit, daily series) | `analytics:read` |
+
+## v1.3 additions: festival campaigns and offers
+
+Design rules (enforced by the API, not the UI): a campaign's **phase is derived from the clock** (`DRAFT | UPCOMING | TEASER | EARLY_ACCESS | LIVE | PAUSED | ENDED | CANCELLED`, half-open windows, UTC stored, IST shown), so no job has to "switch a sale on". Prices are resolved by one server-side resolver for cards, PDP, bag and checkout. Offer layers apply in this order: **campaign sale price → best bundle promotion → one coupon → prepaid**. A sale price is never at or above the regular price, never above MRP and **never below cost**. Strike-through is MRP only.
+
+### Public
+- `GET /campaigns/current` → `CampaignPublicDto[]` (TEASER / EARLY_ACCESS / LIVE only). `claim.upToPercent` is computed from in-stock deal prices vs MRP and rounded **down** to a multiple of 5 (`null` below 10%): the only "Up to X% off" a page may show. `countdownTo` is the next real phase boundary and the only valid countdown target. `extended` + `originalEndsAt` disclose extensions.
+- `GET /campaigns/:slug` → `CampaignPublicDto` (404 for drafts and not-yet-announced campaigns). With a customer session: `hasEarlyAccess`, `subscribed`.
+- `GET /campaigns/:slug/products?limit=48` → `ProductCardDto[]` (in stock first, best deal first).
+- `POST /campaigns/:slug/remind-me` body `{ phone?, email? }` (guests need a phone; signed-in customers can send `{}`) → `{ subscribed, earlyAccess }`. One WhatsApp/email per phase (early access, live, ending soon within 3h). Signed-in subscribers and marketing opt-ins get early-access prices.
+- `ProductCardDto.campaign`, `VariantDto.campaign` + `VariantDto.basePrice` (regular price; `price < basePrice` while a sale applies). Product pages show **public** prices (they are cached); early-access prices apply in the bag.
+- `CartTotalsDto` adds `campaignSavings`, `promotionDiscount`, `promotionName`, `offerNote` (which offer won when a coupon can't combine with a bundle). `CartDto.couponAutoApplied`: the best auto-apply coupon is picked when no code is typed. Applying a non-combinable code that would lose to the bundle is refused with the reason.
+- `POST /checkout` accepts `expectedTotal` (the total the shopper saw). If the server total is higher (sale ended, deal sold out, early access withdrawn) → 409 `PRICE_CHANGED` with `details.grandTotal`; nothing is charged. A deal that sells out between bag and order → 409 `CONFLICT`. Per-customer deal limits are checked by account, email and phone (400).
+- `OrderDetailDto` adds `promotionDiscount` and `savings { campaign, promotion, coupon, prepaid }` (from the order discount ledger).
+- `POST /orders/:number/return-preview` body `{ items: [{ orderItemId, quantity }] }` → `ReturnPreviewDto { refundAmount, itemsValue, deductions[{label, amount}], note }`. If the items kept no longer qualify for a bundle's minimum quantity or a coupon's minimum order, the discount those kept items received is deducted. Computed cumulatively: a later return of the rest gives the deduction back (negative `amount`), so returning everything refunds everything paid for the items. `POST /returns` stores exactly this amount.
+
+### Staff
+| Endpoint | Permission |
+| --- | --- |
+| `GET /admin/campaigns` → `CampaignAdminDto[]`; `POST` body `campaignSchema` (banner text may not contain typed `%` figures); `GET/PATCH/DELETE /admin/campaigns/:id` (delete: drafts only; slug locked after publish; start/early access locked once selling; end moves only via extend) | `promotions:read` / `promotions:write` |
+| `POST /admin/campaigns/:id/publish` (blocked by checklist errors) · `/pause` · `/resume` (refused while the budget is used up) · `/cancel` body `{ note? }` | `promotions:write` |
+| `POST /admin/campaigns/:id/extend` body `{ endsAt, note }` (later only; sets `originalEndsAt`, shown to customers; re-arms "ending soon" reminders) | `promotions:write` |
+| `GET /admin/campaigns/:id/prices` → `CampaignPriceRowDto[]` (MRP, regular, cost, sale, % off regular and MRP, cap, sold, warnings); `PUT` body `{ items: [{ variantId, salePrice \| percentOff, stockCap?, perCustomerLimit? }] }`; while selling, prices may only go down and caps can't drop below sold | `promotions:write` |
+| `POST /admin/campaigns/:id/prices/bulk` body `{ categoryIds[], productIds[], percentOff (off REGULAR), roundToNine, stockCap?, perCustomerLimit? }` → `{ rows, applied, skippedBelowCost }` | `promotions:write` |
+| `DELETE /admin/campaigns/:id/prices/:variantId` (not while selling) | `promotions:write` |
+| `GET /admin/campaigns/:id/checklist` → `CampaignChecklistDto` (errors: window, below cost, nothing to sell; warnings: out of stock, no cost price, overlaps, pre-sale price hikes in the last 30 days, budget vs potential discount) | `promotions:read` |
+| `GET /admin/campaigns/:id/preview?at=ISO` → what the storefront shows at that instant | `promotions:read` |
+| `GET /admin/campaigns/:id/report` → `CampaignReportDto` (orders, units, revenue, AOV, discount by source, budget used, top products, sell-through, daily IST) | `analytics:read` |
+| `GET /admin/promotions?campaignId=`, `POST` body `promotionSchema` ("buy N, X% off", scope by categories/products, cap, usage limit, evergreen window or campaign), `PATCH/DELETE /admin/promotions/:id` (a running sale's bundle can only get better; used promotions are deactivated, not deleted) | `promotions:read` / `promotions:write` |
+| Coupons gain `autoApply`, `combinableWithPromotions`, `campaignId` (campaign coupons work only while that campaign sells) | `promotions:write` |
+
+Campaign budgets count sale-price, bundle and coupon discounts of non-cancelled orders; when used up the campaign auto-pauses (audited). The budget can be overshot by at most the orders in flight when it runs out.

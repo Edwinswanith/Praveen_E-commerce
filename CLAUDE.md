@@ -51,8 +51,10 @@ Behind an HTTP proxy, Node's fetch needs `NODE_USE_ENV_PROXY=1` (Gemini/Razorpay
 14. `GET /admin/inventory/reconcile` must always report `consistent: true`; if it doesn't, something bypassed rule 1.
 15. AI product images are always stored with `aiGenerated = true` (disclosed on the storefront). Never generate children as models; for live products, generate only from a real photo of the garment (`sourceImageId`).
 16. **Virtual try-on photos are never persisted** (no disk, DB, logs or cache): processed in memory, result returned as a data URL. Try-on is disabled for kids' products and capped per session + globally per day (`TRYON_*` env).
-18. **No hardcoded marketing claims.** Discount claims come from live data (`/home` → `deals`, in-stock only, rounded down via `upToDiscountClaim`); shipping/returns promises come from `PRICING_RULES` / `RETURN_WINDOW_DAYS` (storefront `lib/store-promises.ts`). A claim the shop can't fulfil is misleading advertising under Indian consumer law.
 17. Revenue-bearing analytics events (ADD_TO_CART, ORDER_PLACED, TRY_ON, SEARCH) are recorded server-side only; the browser may only send PRODUCT_VIEW / CHECKOUT_STARTED / QUICK_VIEW.
+18. **No hardcoded marketing claims.** Discount claims come from live data (`/home` → `deals`, in-stock only, rounded down via `upToDiscountClaim`); shipping/returns promises come from `PRICING_RULES` / `RETURN_WINDOW_DAYS` (storefront `lib/store-promises.ts`). A claim the shop can't fulfil is misleading advertising under Indian consumer law.
+19. **Campaign prices go through `CampaignPricingService`** (cards, PDP, bag, checkout): never read `variant.price` as "the price". Campaign phase is derived from the clock (`computeCampaignPhase`), never a flag a job flips. Offer order: sale price → best bundle → one coupon → prepaid; discounts never take a line below cost (`unitFloor`). Every discount is written to `order_discounts` by source.
+20. **Sale honesty**: sale price < regular ≤ MRP and ≥ cost; MRP-only strike-through; countdowns only to `countdownTo`; a running sale's prices/bundles can only get better; extensions are disclosed (`originalEndsAt`); checkout stops with `PRICE_CHANGED` instead of charging more than the shopper saw.
 
 ## Status
 See `docs/development/development-roadmap.md` for the module checklist, known limitations and required external configuration.

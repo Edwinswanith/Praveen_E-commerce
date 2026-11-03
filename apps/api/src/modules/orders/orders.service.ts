@@ -62,13 +62,19 @@ export class OrdersService implements OnModuleInit {
     return dto;
   }
 
-  /** Per order item: same product, same price, in-stock variants the customer may swap to. */
+  /**
+   * Per order item: same product, same REGULAR price, in-stock variants the
+   * customer may swap to. Regular (not paid) price, so items bought at a sale
+   * price can still be exchanged for another size of the same product.
+   */
   private async exchangeOptions(items: { id: string; productId: string; variantId: string; unitPrice: Prisma.Decimal }[]) {
-    const variants = await this.prisma.productVariant.findMany({ where: { productId: { in: items.map((i) => i.productId) }, isActive: true }, include: { inventory: true }, orderBy: [{ color: 'asc' }, { sizeOrder: 'asc' }] });
+    const all = await this.prisma.productVariant.findMany({ where: { productId: { in: items.map((i) => i.productId) } }, include: { inventory: true }, orderBy: [{ color: 'asc' }, { sizeOrder: 'asc' }] });
+    const variants = all.filter((v) => v.isActive);
+    const regular = new Map(all.map((v) => [v.id, decToPaise(v.price)]));
     const out: Record<string, { variantId: string; color: string; size: string; available: number }[]> = {};
     for (const i of items) {
       out[i.id] = variants
-        .filter((v) => v.productId === i.productId && v.id !== i.variantId && decToPaise(v.price) === decToPaise(i.unitPrice))
+        .filter((v) => v.productId === i.productId && v.id !== i.variantId && decToPaise(v.price) === regular.get(i.variantId))
         .map((v) => ({ variantId: v.id, color: v.color, size: v.size, available: Math.max(0, (v.inventory?.onHand ?? 0) - (v.inventory?.reserved ?? 0)) }))
         .filter((v) => v.available > 0);
     }
