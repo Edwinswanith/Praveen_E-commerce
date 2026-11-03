@@ -1,5 +1,5 @@
 import { HttpStatus, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Prisma, type OrderStatus } from '@prisma/client';
+import { Prisma, type OrderStatus, type ReturnStatus } from '@prisma/client';
 import { randomInt } from 'node:crypto';
 import {
   canTransition, CUSTOMER_CANCELLABLE, fromPaise, PRICING_RULES, priceCart, RETURN_WINDOW_DAYS,
@@ -602,32 +602,52 @@ export class OrdersService implements OnModuleInit {
     return this.detail({ id: orderId });
   }
 
+  /**
+   * Issues a refund. The refundable balance is checked and the refund is recorded
+   * (PENDING) under a row lock on the order, BEFORE the provider is called, so
+   * concurrent refunds can never together exceed what was paid. A return can have
+   * at most one live refund. If the provider call fails the refund is marked
+   * FAILED, which releases its amount.
+   */
   async refund(orderId: string, amount: number, reason: string, actor: Actor, returnRequestId?: string) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { payments: true, refunds: true } });
-    if (!order) throw notFound('Order');
     const amountPaise = Math.round(amount * 100);
     if (amountPaise <= 0) throw badRequest('Refund amount must be positive');
-    const refunded = order.refunds.filter((r) => r.status !== 'FAILED').reduce((s, r) => s + decToPaise(r.amount), 0);
-    const paid = order.payments.filter((p) => ['CAPTURED', 'PARTIALLY_REFUNDED'].includes(p.status)).reduce((s, p) => s + decToPaise(p.amount), 0);
-    if (refunded + amountPaise > paid) throw badRequest(`Refund exceeds the amount paid (₹${fromPaise(paid - refunded)} refundable)`);
-    const payment = order.payments.find((p) => ['CAPTURED', 'PARTIALLY_REFUNDED'].includes(p.status))!;
+    const held = await this.prisma.$transaction(async (tx) => {
+      const [locked] = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+      if (!locked) throw notFound('Order');
+      const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true, refunds: true } });
+      const live = order.refunds.filter((r) => r.status !== 'FAILED');
+      if (returnRequestId && live.some((r) => r.returnRequestId === returnRequestId)) throw conflict('This return has already been refunded');
+      const refunded = live.reduce((s, r) => s + decToPaise(r.amount), 0);
+      const paidPayments = order.payments.filter((p) => ['CAPTURED', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(p.status));
+      const paid = paidPayments.reduce((s, p) => s + decToPaise(p.amount), 0);
+      if (refunded + amountPaise > paid) throw badRequest(`Refund exceeds the amount paid (₹${fromPaise(Math.max(0, paid - refunded))} refundable)`);
+      const payment = paidPayments[0]!;
+      const r = await tx.refund.create({ data: { orderId, paymentId: payment.id, amount: paiseToDec(amountPaise), status: 'PENDING', reason, createdById: actor.id, returnRequestId } });
+      return { refundId: r.id, payment, paid };
+    });
 
     let providerRefundId: string | null = null;
     let status: 'PENDING' | 'PROCESSED' | 'FAILED' = 'PENDING';
-    if (payment.method === 'ONLINE') {
-      const provider = this.payments.provider;
-      if (!provider || !payment.providerPaymentId) throw new AppError('NOT_CONFIGURED', 'Payment provider unavailable for refunds', 503);
-      const r = await provider.refund(payment.providerPaymentId, amountPaise, { orderId, reason: reason.slice(0, 200) });
-      providerRefundId = r.providerRefundId;
-      status = r.status === 'processed' ? 'PROCESSED' : r.status === 'failed' ? 'FAILED' : 'PENDING';
-    } else {
-      // COD: money goes back by bank/UPI transfer done by staff; this records it.
-      status = 'PROCESSED';
+    try {
+      if (held.payment.method === 'ONLINE') {
+        const provider = this.payments.provider;
+        if (!provider || !held.payment.providerPaymentId) throw new AppError('NOT_CONFIGURED', 'Payment provider unavailable for refunds', 503);
+        const r = await provider.refund(held.payment.providerPaymentId, amountPaise, { orderId, reason: reason.slice(0, 200) });
+        providerRefundId = r.providerRefundId;
+        status = r.status === 'processed' ? 'PROCESSED' : r.status === 'failed' ? 'FAILED' : 'PENDING';
+      } else {
+        // COD: money goes back by bank/UPI transfer done by staff; this records it.
+        status = 'PROCESSED';
+      }
+    } catch (e) {
+      await this.prisma.refund.update({ where: { id: held.refundId }, data: { status: 'FAILED' } });
+      throw e;
     }
     const refund = await this.prisma.$transaction(async (tx) => {
-      const r = await tx.refund.create({ data: { orderId, paymentId: payment.id, amount: paiseToDec(amountPaise), status, reason, providerRefundId, createdById: actor.id, returnRequestId } });
-      const total = refunded + amountPaise;
-      await tx.payment.update({ where: { id: payment.id }, data: { status: total >= paid ? 'REFUNDED' : 'PARTIALLY_REFUNDED' } });
+      const r = await tx.refund.update({ where: { id: held.refundId }, data: { status, providerRefundId } });
+      const total = (await tx.refund.findMany({ where: { orderId, status: { not: 'FAILED' } } })).reduce((s, x) => s + decToPaise(x.amount), 0);
+      await tx.payment.update({ where: { id: held.payment.id }, data: { status: total >= held.paid ? 'REFUNDED' : total > 0 ? 'PARTIALLY_REFUNDED' : 'CAPTURED' } });
       return r;
     });
     await this.audit.log({ actorId: actor.id, action: 'order.refund', entity: 'Order', entityId: orderId, after: { amount, reason, providerRefundId, status } });
@@ -747,10 +767,16 @@ export class OrdersService implements OnModuleInit {
     const allowed: Record<string, string[]> = { APPROVE: ['REQUESTED'], REJECT: ['REQUESTED', 'APPROVED'], RECEIVE: ['APPROVED'], REFUND: ['RECEIVED'] };
     if (!allowed[action]!.includes(r.status)) throw badRequest(`Cannot ${action.toLowerCase()} a return that is ${r.status.toLowerCase()}`);
     if (action === 'REFUND' && r.type === 'EXCHANGE' && r.replacementOrderId) throw badRequest('This exchange was fulfilled with a replacement order; nothing to refund');
+    // Every transition is claimed atomically (status must still be the expected one), so two
+    // staff clicks or retries can't approve, receive/restock or refund the same return twice.
+    const raced = () => conflict('This return was just updated by someone else. Refresh to see its current status.');
     if (action === 'APPROVE' || action === 'REJECT') {
-      await this.prisma.returnRequest.update({ where: { id: r.id }, data: { status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED', decisionNote: note } });
+      const n = await this.prisma.returnRequest.updateMany({ where: { id: r.id, status: { in: allowed[action] as ReturnStatus[] } }, data: { status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED', decisionNote: note } });
+      if (n.count !== 1) throw raced();
     } else if (action === 'RECEIVE') {
       await this.prisma.$transaction(async (tx) => {
+        const claimed = await tx.returnRequest.updateMany({ where: { id: r.id, status: 'APPROVED' }, data: { status: r.type === 'EXCHANGE' ? 'EXCHANGED' : 'RECEIVED' } });
+        if (claimed.count !== 1) throw raced();
         for (const i of r.items) {
           await tx.orderItem.update({ where: { id: i.orderItemId }, data: { returnedQuantity: { increment: i.quantity } } });
           if (restock) await this.inventory.apply(tx, { variantId: i.orderItem.variantId, type: 'RETURN_RESTOCK', onHandDelta: i.quantity, reservedDelta: 0, orderId: r.orderId, reference: r.order.number, reason: `Return ${r.id}`, actorId: actor.id });
@@ -774,8 +800,9 @@ export class OrdersService implements OnModuleInit {
         await this.prisma.returnRequest.update({ where: { id: r.id }, data: { refundAmount: paiseToDec(value) } });
         r.refundAmount = paiseToDec(value);
       }
+      // refund() serialises on the order row and allows one live refund per return (also a DB unique index).
       await this.refund(r.orderId, decToNum(r.refundAmount), `Return ${r.id}`, actor, r.id);
-      await this.prisma.returnRequest.update({ where: { id: r.id }, data: { status: 'REFUNDED' } });
+      await this.prisma.returnRequest.updateMany({ where: { id: r.id, status: 'RECEIVED' }, data: { status: 'REFUNDED' } });
     }
     await this.audit.log({ actorId: actor.id, action: `return.${action.toLowerCase()}`, entity: 'ReturnRequest', entityId: r.id, after: { note, restock } });
     const fresh = await this.prisma.returnRequest.findUniqueOrThrow({ where: { id: r.id }, include: returnInclude });

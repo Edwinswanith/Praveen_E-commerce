@@ -14,6 +14,9 @@ export const COOKIE = {
 
 export interface AccessPayload { sub: string; aud: Audience; role: string; sid: string }
 
+/** Window in which a just-rotated refresh token may still be used once more (parallel tabs). */
+export const ROTATION_GRACE_MS = 30_000;
+
 export const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 
 @Injectable()
@@ -45,20 +48,30 @@ export class TokenService {
   }
 
   /**
-   * Rotates a refresh token. Reuse of an already-rotated token revokes every
-   * session of that user (token theft detection).
+   * Rotates a refresh token. The old session is claimed atomically (only one
+   * request can rotate it). A token that was rotated moments ago (another tab
+   * refreshing at the same time) gets a sibling session instead of tripping theft
+   * detection. Reuse after the grace window, or of a logged-out token, revokes
+   * every session of that user (token theft detection).
    */
   async rotate(refresh: string, audience: Audience, meta: { ip?: string; userAgent?: string }) {
-    const session = await this.prisma.session.findUnique({ where: { refreshTokenHash: sha256(refresh) }, include: { user: { include: { role: true } } } });
+    const hash = sha256(refresh);
+    const session = await this.prisma.session.findUnique({ where: { refreshTokenHash: hash }, include: { user: { include: { role: true } } } });
     if (!session || session.audience !== audience) return null;
-    if (session.revokedAt) {
-      await this.prisma.session.updateMany({ where: { userId: session.userId, revokedAt: null }, data: { revokedAt: new Date() } });
-      return null;
-    }
     if (session.expiresAt < new Date() || !session.user.isActive || session.user.deletedAt) return null;
-    const next = await this.createSession(session.userId, session.user.role.name, audience, meta);
-    await this.prisma.session.update({ where: { id: session.id }, data: { revokedAt: new Date(), replacedById: next.sessionId } });
-    return { ...next, user: session.user };
+    const role = session.user.role.name;
+    if (!session.revokedAt) {
+      const next = await this.createSession(session.userId, role, audience, meta);
+      const claimed = await this.prisma.session.updateMany({ where: { id: session.id, revokedAt: null }, data: { revokedAt: new Date(), replacedById: next.sessionId } });
+      if (claimed.count === 1) return { ...next, user: session.user };
+      // Lost the race to a concurrent refresh: drop our unused session and fall through.
+      await this.prisma.session.delete({ where: { id: next.sessionId } });
+    }
+    const current = await this.prisma.session.findUniqueOrThrow({ where: { id: session.id } });
+    const rotatedRecently = current.replacedById && current.revokedAt && Date.now() - current.revokedAt.getTime() < ROTATION_GRACE_MS;
+    if (rotatedRecently) return { ...(await this.createSession(session.userId, role, audience, meta)), user: session.user };
+    await this.prisma.session.updateMany({ where: { userId: session.userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return null;
   }
 
   async revoke(refresh: string | undefined) {
