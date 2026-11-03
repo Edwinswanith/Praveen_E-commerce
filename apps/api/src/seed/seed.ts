@@ -24,6 +24,7 @@ import { ProductsService } from '../modules/products/products.service';
 import { InventoryService } from '../modules/inventory/inventory.service';
 import { MediaService } from '../modules/media/media.service';
 import { CartService } from '../modules/carts/cart.service';
+import { CampaignsService } from '../modules/campaigns/campaigns.service';
 import { OrdersService } from '../modules/orders/orders.service';
 import { EmbeddingService } from '../modules/ai/embedding.service';
 import { PERMISSIONS, ROLE_PERMISSIONS } from '../modules/roles/permissions';
@@ -227,6 +228,20 @@ async function main() {
     { code: 'ETHNIC15', description: '15% off ethnic wear', type: 'PERCENTAGE', value: 15, maxDiscount: 500, categoryIds: [catIds.get('men-ethnic')!, catIds.get('women-kurtas')!], perUserLimit: 2, isActive: true },
     { code: 'MONSOON25', description: 'Expired seasonal offer (demo)', type: 'PERCENTAGE', value: 25, expiresAt: new Date(now.getTime() - 86400_000), isActive: true },
   ] });
+
+  console.log('→ festival campaign (through the campaigns service)');
+  const campaigns = app.get(CampaignsService);
+  const seedActor = { id: ownerId, name: 'Seed' };
+  const festive = await campaigns.create({
+    name: 'Festive Edit Sale', slug: 'festive-edit', edition: String(now.getFullYear()), festival: 'Diwali', priority: 10,
+    description: 'Ethnic wear and festive picks at sale prices, plus an extra 10% when you buy two.',
+    teaserStartsAt: new Date(now.getTime() - 2 * 86400_000), startsAt: new Date(now.getTime() - 3600_000), endsAt: new Date(now.getTime() + 10 * 86400_000),
+    budget: 250000, bannerTitle: 'The Festive Edit', bannerSubtitle: 'Kurtas, sets and festive layers on sale', themeColor: '#7a1f2b',
+  } as never, seedActor);
+  const bulk = await campaigns.bulkPrices(festive.id, { categoryIds: [catIds.get('men-ethnic')!, catIds.get('women-kurtas')!], productIds: [], percentOff: 25, roundToNine: true, stockCap: null, perCustomerLimit: null }, seedActor);
+  await campaigns.createPromotion({ name: 'Buy 2, extra 10% off', campaignId: festive.id, minQuantity: 2, percentOff: 10, maxDiscount: 500, categoryIds: [catIds.get('men-ethnic')!, catIds.get('women-kurtas')!], productIds: [], isActive: true } as never, seedActor);
+  await campaigns.publish(festive.id, seedActor);
+  console.log(`  ${bulk.applied} sale prices (${bulk.skippedBelowCost} skipped: below cost)`);
 
   console.log('→ demo customers & orders (through checkout)');
   const customerRole = await prisma.role.findUniqueOrThrow({ where: { name: 'CUSTOMER' } });
