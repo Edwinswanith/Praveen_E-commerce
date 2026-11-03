@@ -544,10 +544,25 @@ model PriceHistory {
   @@map("price_history")
 }
 
+enum NewsletterStatus {
+  PENDING
+  SUBSCRIBED
+  UNSUBSCRIBED
+}
+
+/// Double opt-in: PENDING until the email owner confirms; UNSUBSCRIBED rows are kept as a suppression list.
 model NewsletterSubscriber {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  id             String           @id @default(cuid())
+  email          String           @unique
+  status         NewsletterStatus @default(PENDING)
+  source         String?
+  consentAt      DateTime?        @db.Timestamptz(3)
+  confirmedAt    DateTime?        @db.Timestamptz(3)
+  unsubscribedAt DateTime?        @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@index([status])
 
   @@map("newsletter_subscribers")
 }
@@ -1196,6 +1211,10 @@ model Review {
   sizePurchased    String?
   images           ReviewImage[]
   isPublished      Boolean  @default(true)
+  /// Post-moderation: staff can hide (or restore) a review; always with a note, always audited.
+  moderatedAt      DateTime? @db.Timestamptz(3)
+  moderatedById    String?
+  moderationNote   String?
   createdAt        DateTime @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @db.Timestamptz(3)
 

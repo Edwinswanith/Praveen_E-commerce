@@ -20,6 +20,7 @@ import { buildPhotoPrompt, ImageGenService } from '../ai/image-gen.service';
 import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MediaService } from '../media/media.service';
 import { ProductsService } from './products.service';
 import { ProductImportService } from './import.service';
+import { refreshRating } from './review-rating';
 
 const limitQ = z.object({ limit: z.coerce.number().int().min(1).max(24).default(12) });
 
@@ -122,8 +123,7 @@ export class ReviewWriteController {
       for (const o of old) await this.storage.delete(o.storageKey);
       await this.prisma.reviewImage.createMany({ data: processed.map((x) => ({ reviewId: review.id, storageKey: x.key, url: x.url, thumbUrl: x.thumbUrl })) });
     }
-    const agg = await this.prisma.review.aggregate({ where: { productId: p.id, isPublished: true }, _avg: { rating: true }, _count: true });
-    await this.prisma.product.update({ where: { id: p.id }, data: { ratingAvg: agg._avg.rating ?? null, ratingCount: agg._count } });
+    await refreshRating(this.prisma, p.id);
     const full = await this.prisma.review.findUniqueOrThrow({ where: { id: review.id }, include: { images: true } });
     return toReviewDto(full, u.name);
   }

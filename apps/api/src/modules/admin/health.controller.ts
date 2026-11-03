@@ -33,12 +33,6 @@ export class HealthController {
     const { db, redis } = await probe(this.prisma, this.queue);
     return { status: db ? 'ok' : 'degraded', db, redis };
   }
-
-  @Throttle({ default: { limit: 5, ttl: 60_000 } }) @HttpCode(200) @Post('newsletter')
-  async newsletter(@Body(new ZodPipe(z.object({ email: z.string().trim().toLowerCase().email() }))) b: { email: string }) {
-    await this.prisma.newsletterSubscriber.upsert({ where: { email: b.email }, create: { email: b.email }, update: {} });
-    return { ok: true };
-  }
 }
 
 /** Staff-only: version and per-integration configuration ("pending" = credentials not configured). */

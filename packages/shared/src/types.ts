@@ -373,6 +373,19 @@ export interface ReviewDto {
   fit: FitFeedback | null; sizePurchased: string | null; images: { id: string; url: string; thumbUrl: string }[];
 }
 
+/** Admin review moderation row (GET /admin/reviews). */
+export interface ReviewAdminDto extends ReviewDto {
+  productId: string; productName: string; productSlug: string;
+  authorEmail: string | null;
+  isPublished: boolean;
+  moderatedAt: string | null; moderatedBy: string | null; moderationNote: string | null;
+}
+
+export interface NewsletterSubscriberDto {
+  id: string; email: string; status: import('./enums').NewsletterStatus; source: string | null;
+  consentAt: string | null; confirmedAt: string | null; unsubscribedAt: string | null; createdAt: string;
+}
+
 export interface InventoryRowDto {
   variantId: string;
   productId: string;

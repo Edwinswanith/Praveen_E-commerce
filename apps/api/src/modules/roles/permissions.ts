@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   'orders:refund': 'Issue refunds',
   'customers:read': 'View customer profiles and history',
   'customers:write': 'Write internal support notes on customer profiles',
+  'reviews:moderate': 'Hide or restore customer reviews (with a reason)',
   'promotions:read': 'View coupons',
   'promotions:write': 'Create and edit coupons',
   'analytics:read': 'View revenue dashboards and reports',

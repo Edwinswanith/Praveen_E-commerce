@@ -20,6 +20,7 @@ import { CategoriesService } from './modules/categories/categories.service';
 import { AdminCategoriesController, CategoriesController } from './modules/categories/categories.controller';
 import { ProductsService } from './modules/products/products.service';
 import { ProductImportService } from './modules/products/import.service';
+import { AdminReviewsController } from './modules/products/admin-reviews.controller';
 import { AdminProductsController, ProductsController, ReviewWriteController } from './modules/products/products.controller';
 import { BarcodesService } from './modules/barcodes/barcodes.service';
 import { InventoryService } from './modules/inventory/inventory.service';
@@ -43,6 +44,8 @@ import { AnalyticsService } from './modules/analytics/analytics.service';
 import { AnalyticsController } from './modules/analytics/analytics.controller';
 import { AdminCouponsController, AdminCustomersController } from './modules/admin/admin.controller';
 import { HealthController, SystemHealthController } from './modules/admin/health.controller';
+import { NewsletterService } from './modules/newsletter/newsletter.service';
+import { AdminNewsletterController, NewsletterController } from './modules/newsletter/newsletter.controller';
 import { MessagingService } from './common/messaging/messaging.service';
 import { OtpService } from './modules/otp/otp.service';
 import { CodService } from './modules/cod/cod.service';
@@ -65,8 +68,8 @@ import { AdminCampaignsController, AdminPromotionsController, CampaignsControlle
 @Module({
   imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }])],
   controllers: [
-    HealthController, SystemHealthController, AuthController, StaffAuthController, MeController, StaffUsersController, AuditLogController,
-    CategoriesController, AdminCategoriesController, ProductsController, ReviewWriteController, AdminProductsController,
+    HealthController, SystemHealthController, NewsletterController, AdminNewsletterController, AuthController, StaffAuthController, MeController, StaffUsersController, AuditLogController,
+    CategoriesController, AdminCategoriesController, ProductsController, ReviewWriteController, AdminProductsController, AdminReviewsController,
     InventoryController, BarcodesController, CartController, PublicCouponsController, WishlistController,
     CheckoutController, CustomerOrdersController, AdminOrdersController, SearchController, AdminAiController,
     AnalyticsController, AdminCouponsController, AdminCustomersController, AdminCodController, EventsController, TryOnController,
@@ -76,7 +79,7 @@ import { AdminCampaignsController, AdminPromotionsController, CampaignsControlle
     { provide: ENV, useFactory: () => loadEnv() },
     PrismaService, AuditService, MailService, StorageService, QueueService, AttemptLimiter,
     TokenService, AuthService, CategoriesService, ProductsService, ProductImportService, BarcodesService, InventoryService,
-    MediaService, EmbeddingService, CouponsService, CartService, PaymentsGateway, ShippingService, ShiprocketWebhookService, OrdersService, InvoiceService,
+    MediaService, EmbeddingService, CouponsService, CartService, PaymentsGateway, ShippingService, ShiprocketWebhookService, NewsletterService, OrdersService, InvoiceService,
     SearchService, AnalyticsService, MessagingService, OtpService, CodService, ImageGenService, EventsService, TryOnService,
     CampaignPricingService, CampaignsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },

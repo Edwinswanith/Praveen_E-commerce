@@ -383,6 +383,25 @@ export const remindMeSchema = z.object({
   code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code').optional(),
 });
 
+export const reviewModerationSchema = z.object({
+  /** Shown in the audit log; required so hiding is never silent. */
+  reason: z.string().trim().min(3, 'Give a reason').max(300),
+});
+export const adminReviewQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  q: z.string().max(200).optional(),
+  status: z.enum(['published', 'hidden']).optional(),
+  maxRating: z.coerce.number().int().min(1).max(5).optional(),
+});
+
+export const newsletterSubscribeSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  /** Where the form was (footer, checkout…); stored as consent context. */
+  source: z.string().trim().toLowerCase().max(40).regex(/^[a-z0-9_-]*$/).optional(),
+});
+export const newsletterTokenSchema = z.object({ token: z.string().regex(/^[a-z0-9]{20,40}\.[a-f0-9]{64}$/, 'This link is invalid or has expired') });
+
 export const returnPreviewSchema = z.object({
   items: z.array(z.object({ orderItemId: cuid, quantity: z.coerce.number().int().positive() })).min(1),
 });
