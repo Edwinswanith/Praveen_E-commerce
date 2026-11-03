@@ -3,6 +3,7 @@
 import * as React from 'react';
 import useSWR from 'swr';
 import { formatINR, type CampaignBadgeDto, type ProductCardDto } from '@vyra/shared';
+import { Price } from '@vyra/ui';
 import { campaignProductsKey } from '@/lib/campaigns';
 import { useCurrentCampaigns } from '@/hooks/use-campaigns';
 import { CampaignTag } from '../campaign/campaign-badge';
@@ -33,6 +34,26 @@ export function SalePriceNote({
           Regular price {formatINR(basePrice)}
         </p>
       )}
+    </>
+  );
+}
+
+/** PDP price block: price, MRP struck (only MRP), % off MRP, then sale context. */
+export function PdpPrice({
+  price,
+  mrp,
+  basePrice,
+  campaign,
+}: {
+  price: number;
+  mrp: number;
+  basePrice: number | undefined;
+  campaign: CampaignBadgeDto | null;
+}) {
+  return (
+    <>
+      <Price price={price} mrp={mrp} size="lg" />
+      <SalePriceNote price={price} basePrice={basePrice} campaign={campaign} />
     </>
   );
 }

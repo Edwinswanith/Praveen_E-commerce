@@ -82,6 +82,54 @@ describe('<PriceSummary /> prepaid discount', () => {
   });
 });
 
+describe('<PriceSummary /> festival offers', () => {
+  const sale: CartTotalsDto = {
+    ...totals,
+    mrpTotal: 3198,
+    subtotal: 1338,
+    productDiscount: 1860,
+    campaignSavings: 460,
+    promotionDiscount: 133,
+    promotionName: 'Buy 2, extra 10% off',
+    couponDiscount: 0,
+    grandTotal: 1205,
+  };
+
+  it('shows sale savings as part of the MRP discount, and the bundle as its own line', () => {
+    render(<PriceSummary totals={sale} itemCount={2} />);
+    expect(within(row(/^Discount on MRP$/)).getByText(`−${formatINR(1860)}`)).toBeInTheDocument();
+    expect(screen.getByTestId('sale-savings')).toHaveTextContent(formatINR(460));
+    // Included in the MRP discount, so it is not deducted again.
+    expect(screen.getByTestId('sale-savings').textContent).not.toContain('−');
+    expect(
+      within(row(/^Bundle: Buy 2, extra 10% off$/)).getByText(`−${formatINR(133)}`),
+    ).toBeInTheDocument();
+    expect(screen.getByText(`You’re saving ${formatINR(1860 + 133)} on this order`)).toBeInTheDocument();
+  });
+
+  it('hides sale savings and bundle lines when zero', () => {
+    render(<PriceSummary totals={totals} itemCount={3} />);
+    expect(screen.queryByTestId('sale-savings')).toBeNull();
+    expect(screen.queryByText(/^Bundle/)).toBeNull();
+    expect(screen.queryByTestId('offer-note')).toBeNull();
+  });
+
+  it('labels an automatically applied coupon', () => {
+    const { rerender } = render(
+      <PriceSummary totals={totals} itemCount={3} couponCode="FESTIVE5" couponAutoApplied />,
+    );
+    expect(within(row(/Coupon discount \(FESTIVE5\)/)).getByText('Applied automatically')).toBeInTheDocument();
+    rerender(<PriceSummary totals={totals} itemCount={3} couponCode="VIBE10" />);
+    expect(screen.queryByText('Applied automatically')).toBeNull();
+  });
+
+  it('shows the offer note from the server', () => {
+    const note = 'VIBE10 can\'t be combined with “Buy 2, extra 10% off”. We kept the better offer.';
+    render(<PriceSummary totals={{ ...sale, offerNote: note }} itemCount={2} />);
+    expect(screen.getByTestId('offer-note')).toHaveTextContent(note);
+  });
+});
+
 describe('<FreeShippingProgress />', () => {
   it('shows the amount left to the free-shipping threshold after coupon', () => {
     render(<FreeShippingProgress totals={{ ...totals, subtotal: 800, couponDiscount: 100 }} />);

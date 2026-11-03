@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { RotateCcw, ShieldCheck, ShoppingBag, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ProductDetailDto } from '@vyra/shared';
-import { Badge, Button, Price } from '@vyra/ui';
+import { Badge, Button } from '@vyra/ui';
 import { ApiError, errorMessage } from '@/lib/api';
 import { initialSelection, resolveVariant, selectionForVariant, stockMessage, type Selection } from '@/lib/variants';
 import { recordRecentlyViewed } from '@/lib/recently-viewed';
@@ -21,7 +21,7 @@ import { VariantSelector } from './variant-selector';
 import { SizeGuide } from './size-guide';
 import { PincodeCheck } from './pincode-check';
 import { FitAdvice } from './fit-advice';
-import { EarlyAccessNote, SalePriceNote } from './sale-price-note';
+import { EarlyAccessNote, PdpPrice } from './sale-price-note';
 import { RETURN_DAYS } from '@/lib/store-promises';
 
 export function ProductDetail({ product, initialVariantId }: { product: ProductDetailDto; initialVariantId?: string }) {
@@ -50,8 +50,11 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
   const soldOut = !product.variants.some((v) => v.isActive && v.inStock && v.available > 0);
   const price = variant?.price ?? product.minPrice;
   const mrp = variant?.mrp ?? product.minMrp;
-  // Without a picked variant, product.campaign describes the lowest (shown) price.
-  const saleCampaign = variant ? variant.campaign : product.campaign;
+  // Without a picked variant the lowest price is shown: describe that variant's sale.
+  const shownVariant =
+    variant ?? product.variants.find((v) => v.isActive && v.price === product.minPrice && v.mrp === mrp) ??
+    product.variants.find((v) => v.isActive && v.price === product.minPrice);
+  const saleCampaign = variant ? variant.campaign : (shownVariant?.campaign ?? product.campaign);
   const stock = stockMessage(variant);
   const sizes = [...new Set(product.variants.filter((v) => v.isActive).map((v) => v.size))];
 
@@ -129,8 +132,7 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
         )}
 
         <div className="mt-4 border-t border-border pt-4">
-          <Price price={price} mrp={mrp} size="lg" />
-          <SalePriceNote price={price} basePrice={variant?.basePrice} campaign={saleCampaign} />
+          <PdpPrice price={price} mrp={mrp} basePrice={shownVariant?.basePrice} campaign={saleCampaign} />
           <p className="mt-1 text-xs font-semibold text-teal-600">Inclusive of all taxes</p>
           <EarlyAccessNote productId={product.id} />
         </div>

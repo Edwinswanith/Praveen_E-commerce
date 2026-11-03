@@ -32,7 +32,10 @@ const delivered = orderFixture({
   },
 });
 
-beforeEach(() => apiMock.mockReset());
+// Block body: returning the mock would register it as a cleanup hook (and call it).
+beforeEach(() => {
+  apiMock.mockReset();
+});
 
 describe('<ExchangePicker />', () => {
   it('lists colour + size options with low-stock hints and reports the choice', () => {
