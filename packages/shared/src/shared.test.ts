@@ -35,6 +35,12 @@ describe('EAN-13', () => {
     expect(c.startsWith('200000000123')).toBe(true);
     expect(isValidEan13(c)).toBe(true);
   });
+  it('reads SKUs from tag links and legacy QR text', async () => {
+    const { skuFromTagPayload } = await import('./index');
+    expect(skuFromTagPayload('https://vyra.in/s/VY-TSH-00042-BLK-M?utm_source=tag')).toBe('VY-TSH-00042-BLK-M');
+    expect(skuFromTagPayload('VYRA:vy-tsh-00042-blk-m')).toBe('VY-TSH-00042-BLK-M');
+    expect(skuFromTagPayload('2000000000251')).toBeNull();
+  });
   it('strips scanner noise', () => {
     expect(normalizeScan(']E02000000001234\r\n')).toBe('2000000001234');
   });

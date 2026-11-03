@@ -126,6 +126,17 @@ export function initialSelection(
   };
 }
 
+/**
+ * Selection for a specific variant (QR tag scan / deep link): its colour always,
+ * its size only when that variant is still sellable (the selector cannot hold a
+ * sold-out size). Unknown ids fall back to the default selection.
+ */
+export function selectionForVariant(variants: VariantDto[], variantId: string | null | undefined): Selection {
+  const v = variantId ? variants.find((x) => x.id === variantId) : undefined;
+  if (!v) return initialSelection(variants);
+  return { color: v.color, size: v.isActive && v.inStock ? v.size : null };
+}
+
 /** Changing colour keeps the size only if it's still sellable in the new colour. */
 export function selectColor(variants: VariantDto[], current: Selection, color: string): Selection {
   const keep = current.size && resolveVariant(variants, color, current.size) ? current.size : null;

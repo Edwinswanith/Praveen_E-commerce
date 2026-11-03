@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import type { ProductDetailDto } from '@vyra/shared';
 import { Badge, Button, Price } from '@vyra/ui';
 import { ApiError, errorMessage } from '@/lib/api';
-import { initialSelection, resolveVariant, stockMessage, type Selection } from '@/lib/variants';
+import { initialSelection, resolveVariant, selectionForVariant, stockMessage, type Selection } from '@/lib/variants';
 import { recordRecentlyViewed } from '@/lib/recently-viewed';
 import { useCart } from '@/hooks/use-cart';
 import { RatingPill } from '../ui/stars';
@@ -19,11 +19,11 @@ import { SizeGuide } from './size-guide';
 import { PincodeCheck } from './pincode-check';
 import { FitAdvice } from './fit-advice';
 
-export function ProductDetail({ product }: { product: ProductDetailDto }) {
+export function ProductDetail({ product, initialVariantId }: { product: ProductDetailDto; initialVariantId?: string }) {
   const router = useRouter();
   const { addItem } = useCart();
   const [selection, setSelection] = React.useState<Selection>(() =>
-    initialSelection(product.variants),
+    initialVariantId ? selectionForVariant(product.variants, initialVariantId) : initialSelection(product.variants),
   );
   const [sizeError, setSizeError] = React.useState<string | null>(null);
   const [guide, setGuide] = React.useState(false);

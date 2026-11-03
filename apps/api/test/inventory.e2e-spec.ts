@@ -45,7 +45,7 @@ describe('Catalog, barcodes and inventory (integration)', () => {
 
   it('identifies a variant from EAN-13, SKU or QR payload without touching stock', async () => {
     const v = product.variants[0]!;
-    for (const code of [v.barcode!, v.sku, `VYRA:${v.sku}`, `]E0${v.barcode}`]) {
+    for (const code of [v.barcode!, v.sku, `VYRA:${v.sku}`, `]E0${v.barcode}`, `https://vyra.in/s/${v.sku}?utm_source=tag`]) {
       const r = await inv.post('/api/v1/admin/scans').set(H).send({ code, mode: 'RECEIVE', device: 'USB' }).expect(200);
       expect(r.body.data.found).toBe(true);
       expect(r.body.data.variant.id).toBe(v.id);
@@ -129,6 +129,28 @@ describe('Ledger reconciliation (integration)', () => {
       const r = (await inv.get('/api/v1/admin/inventory/reconcile').expect(200)).body.data;
       expect(r.consistent).toBe(false);
       expect(r.drift[0]).toMatchObject({ onHand: 99, ledgerOnHand: 4 });
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+
+describe('QR tag links (integration)', () => {
+  it('maps a SKU to its product page for customers without exposing stock', async () => {
+    const { bootApp: boot, createStaff: staff, createCategory: cat, productInput: input, H: h } = await import('./helpers');
+    const request = (await import('supertest')).default;
+    const { app, prisma } = await boot();
+    try {
+      const admin = await staff(app, 'ADMIN');
+      const c = await cat(prisma);
+      const p = (await admin.post('/api/v1/admin/products').set(h).send(input(c.id)).expect(201)).body.data;
+      const v = p.variants[1];
+      const r = (await request(app.getHttpServer()).get(`/api/v1/products/by-sku/${v.sku.toLowerCase()}`).expect(200)).body.data;
+      expect(r).toEqual({ slug: p.slug, variantId: v.id, color: v.color, size: v.size, isActive: true });
+      expect(JSON.stringify(r)).not.toMatch(/onHand|available|cost/);
+      await admin.post(`/api/v1/admin/products/${p.id}/status`).set(h).send({ status: 'DRAFT' }).expect(200);
+      await request(app.getHttpServer()).get(`/api/v1/products/by-sku/${v.sku}`).expect(404); // unpublished products stay private
     } finally {
       await app.close();
     }

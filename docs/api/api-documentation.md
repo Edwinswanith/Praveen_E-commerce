@@ -204,4 +204,9 @@ Permission strings are `resource:action`. Role grants live in `apps/api/src/modu
 | `GET /admin/customers/:id` now `CustomerDetailDto` (adds `stats.rto`, `codRisk`) | `customers:read` |
 | `POST /admin/products/:id/images/generate` body `aiPhotoSchema` `{ sourceImageId?, style: MODEL\|STUDIO\|FLATLAY\|LIFESTYLE, color?, notes?, count: 1\|2 }` → `ProductImageDto[]` (`aiGenerated: true`). With `sourceImageId` the real garment is kept exactly; kids items never use a generated child model | `catalog:write` |
 
+### Garment tag QR links
+- QR labels encode `${STOREFRONT_URL}/s/<SKU>` (stable forever: printed on tags). The storefront route redirects to `/p/<slug>?variant=<id>&utm_source=tag&utm_medium=qr` with colour + size preselected; unknown/retired SKUs land on search.
+- `GET /products/by-sku/:sku` (public) → `{ slug, variantId, color, size, isActive }` for ACTIVE products only (no stock/cost).
+- The admin scanner accepts the tag URL, the EAN-13, the SKU, or legacy `VYRA:<SKU>` text.
+
 Typed admin DTOs now exist for suppliers, purchase orders, scan history, staff users, audit logs and customer detail (`packages/shared/src/types.ts`).

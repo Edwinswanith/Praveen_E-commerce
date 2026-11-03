@@ -121,3 +121,14 @@ describe('<VariantSelector />', () => {
     expect(screen.getByTestId('variant')).toHaveTextContent('none');
   });
 });
+
+describe('selectionForVariant (QR tag deep link)', () => {
+  it('preselects the scanned colour and size, but never a sold-out size', async () => {
+    const { selectionForVariant } = await import('@/lib/variants');
+    const mk = (id: string, color: string, size: string, inStock: boolean) => ({ id, sku: id, color, colorHex: null, size, mrp: 100, price: 80, discountPercent: 20, available: inStock ? 3 : 0, inStock, isActive: true, barcode: null });
+    const vs = [mk('a', 'Black', 'M', true), mk('b', 'White', 'L', true), mk('c', 'White', 'XL', false)];
+    expect(selectionForVariant(vs, 'b')).toEqual({ color: 'White', size: 'L' });
+    expect(selectionForVariant(vs, 'c')).toEqual({ color: 'White', size: null });
+    expect(selectionForVariant(vs, 'nope').color).toBe('Black');
+  });
+});

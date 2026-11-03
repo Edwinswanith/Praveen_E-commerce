@@ -45,3 +45,14 @@ test('@mobile storefront home, PDP and search fit a phone screen', async ({ page
   const missing = await page.goto(`${STORE}/p/this-product-does-not-exist`);
   expect(missing?.status()).toBe(404);
 });
+
+test('@mobile scanning a garment tag QR opens the product with that colour and size selected', async ({ page, request }) => {
+  const list = (await (await request.get(`${API}/api/v1/products?inStock=true&pageSize=10`)).json()).data.items as { slug: string }[];
+  const pdp = (await (await request.get(`${API}/api/v1/products/${list[0]!.slug}`)).json()).data;
+  const v = pdp.variants.find((x: { inStock: boolean }) => x.inStock);
+  await page.goto(`${STORE}/s/${v.sku}`);
+  await expect(page).toHaveURL(new RegExp(`/p/${pdp.slug}\\?variant=${v.id}`));
+  await expect(page.locator(`[aria-pressed="true"], [aria-checked="true"]`).filter({ hasText: new RegExp(`^${v.size}$`) }).first()).toBeVisible();
+  const unknown = await page.goto(`${STORE}/s/VY-XXX-99999-NOPE-M`);
+  expect(unknown?.url()).toContain('/search?q=');
+});

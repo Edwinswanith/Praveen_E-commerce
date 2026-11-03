@@ -36,6 +36,14 @@ export function isValidCode128(value: string): boolean {
  * Normalises raw scanner input. USB/Bluetooth HID scanners "type" the code and
  * usually send Enter; some prepend AIM symbology identifiers like "]E0".
  */
+/** Extracts the SKU from a VYRA tag link (".../s/VY-TSH-00042-BLK-M") or legacy "VYRA:<sku>" QR text. */
+export function skuFromTagPayload(code: string): string | null {
+  const url = /\/s\/([A-Za-z0-9-]{3,64})\/?(?:[?#].*)?$/.exec(code.trim());
+  if (url) return url[1]!.toUpperCase();
+  if (/^VYRA:/i.test(code.trim())) return code.trim().slice(5).toUpperCase();
+  return null;
+}
+
 export function normalizeScan(raw: string): string {
   return raw.trim().replace(/^\][A-Za-z]\d/, '').replace(/[\r\n\t]/g, '');
 }

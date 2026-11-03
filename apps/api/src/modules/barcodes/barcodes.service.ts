@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import bwipjs from 'bwip-js';
 import PDFDocument from 'pdfkit';
-import { buildEan13, isValidEan13, normalizeScan, type BarcodeSymbology } from '@vyra/shared';
+import { buildEan13, isValidEan13, normalizeScan, skuFromTagPayload, type BarcodeSymbology } from '@vyra/shared';
 import { ENV, type Env } from '../../config/env';
 import { PrismaService, type Tx } from '../../common/prisma/prisma.service';
 import { badRequest, notFound } from '../../common/http/errors';
@@ -44,11 +44,18 @@ export class BarcodesService {
   /** Resolve scanned input (EAN-13, Code128 SKU, or VYRA: QR) to a variant. */
   async resolve(raw: string) {
     let code = normalizeScan(raw);
-    if (code.toUpperCase().startsWith(QR_PREFIX)) code = code.slice(QR_PREFIX.length);
+    // QR tags carry a customer link (…/s/<SKU>); older labels carry "VYRA:<SKU>".
+    const tagSku = skuFromTagPayload(code);
+    if (tagSku) code = tagSku;
     const barcode = await this.prisma.barcode.findUnique({ where: { value: code } });
     const symbology: BarcodeSymbology | null = barcode?.symbology ?? (isValidEan13(code) ? 'EAN13' : null);
     const variantId = barcode?.variantId ?? (await this.prisma.productVariant.findUnique({ where: { sku: code.toUpperCase() } }))?.id;
     return { code, symbology: variantId && !barcode ? ('CODE128' as const) : symbology, variantId: variantId ?? null };
+  }
+
+  /** Public link printed in QR tags: opens the product page with this colour/size selected. */
+  tagUrl(sku: string) {
+    return `${this.env.STOREFRONT_URL.replace(/\/$/, '')}/s/${encodeURIComponent(sku)}`;
   }
 
   async png(variantId: string, symbology: BarcodeSymbology): Promise<Buffer> {
@@ -58,7 +65,7 @@ export class BarcodesService {
   }
 
   private valueFor(v: { sku: string; barcodes: { symbology: string; value: string }[] }, symbology: BarcodeSymbology) {
-    if (symbology === 'QR') return QR_PREFIX + v.sku;
+    if (symbology === 'QR') return this.tagUrl(v.sku);
     const b = v.barcodes.find((x) => x.symbology === symbology);
     if (!b) throw badRequest(`Variant ${v.sku} has no ${symbology} barcode yet`);
     return b.value;

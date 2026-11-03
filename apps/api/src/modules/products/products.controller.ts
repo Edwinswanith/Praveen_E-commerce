@@ -44,6 +44,17 @@ export class ProductsController {
     return this.products.cardsByIds(q.ids.split(',').filter(Boolean).slice(0, 50));
   }
 
+  /** Tag scan target: SKU → product slug + variant (active products only; no stock or cost data). */
+  @Get('products/by-sku/:sku')
+  async bySku(@Param('sku') sku: string) {
+    const v = await this.prisma.productVariant.findFirst({
+      where: { sku: sku.toUpperCase(), product: { status: 'ACTIVE', deletedAt: null } },
+      select: { id: true, color: true, size: true, isActive: true, product: { select: { slug: true } } },
+    });
+    if (!v) throw notFound('Product');
+    return { slug: v.product.slug, variantId: v.id, color: v.color, size: v.size, isActive: v.isActive };
+  }
+
   @Get('products/:slug')
   detail(@Param('slug') slug: string) {
     return this.products.detailBySlug(slug);

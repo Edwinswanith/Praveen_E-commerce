@@ -15,7 +15,7 @@ import { serverFetch } from '@/lib/server-api';
 import { absoluteUrl } from '@/lib/site';
 import { categoryHref } from '@/lib/categories';
 
-type Props = { params: Promise<{ slug: string }> };
+type Props = { params: Promise<{ slug: string }>; searchParams?: Promise<{ variant?: string | string[] }> };
 
 function getProduct(slug: string) {
   return serverFetch<ProductDetailDto>(`/products/${encodeURIComponent(slug)}`, { revalidate: 60 });
@@ -149,8 +149,10 @@ function RailsSkeleton() {
   );
 }
 
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage({ params, searchParams }: Props) {
   const { slug } = await params;
+  const v = (await searchParams)?.variant;
+  const initialVariantId = typeof v === 'string' ? v : undefined;
   const res = await getProduct(slug);
   if (!res.ok) {
     if (res.status === 404) notFound();
@@ -184,7 +186,7 @@ export default async function ProductPage({ params }: Props) {
         ]}
       />
       <div className="mt-4">
-        <ProductDetail product={product} />
+        <ProductDetail product={product} initialVariantId={initialVariantId} />
       </div>
       <div className="mt-8 border-t border-border">
         <Specs product={product} />
