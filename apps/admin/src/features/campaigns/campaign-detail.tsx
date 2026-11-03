@@ -63,7 +63,7 @@ export function CampaignDetail({ id }: { id: string }) {
         back={back}
         title={c.name}
         description={<span className="flex flex-wrap items-center gap-2"><PhaseBadge c={c} /><span>{[c.festival, c.edition].filter(Boolean).join(' · ')}</span><span className="font-mono text-xs">/{c.slug}</span></span>}
-        actions={<CampaignActions campaign={c} canWrite={canWrite} publishBlocked={publishBlocked} onChanged={(next) => { if (next) void mutate({ data: next, extra: {} }, { revalidate: true }); void checklist.mutate(); }} />}
+        actions={<CampaignActions campaign={c} canWrite={canWrite} publishBlocked={publishBlocked} onChanged={(next) => { if (!next) return; void mutate({ data: next, extra: {} }, { revalidate: true }); void checklist.mutate(); }} />}
       />
       <Tabs.Root value={tab} onValueChange={(v) => setF({ tab: v })}>
         <div className="-mx-3 mb-5 overflow-x-auto border-b border-border px-3 scrollbar-thin sm:mx-0 sm:px-0">

@@ -1,6 +1,6 @@
 # Development roadmap & status
 
-Last verified: 2026-11-03 (v1.2). Totals: **209 automated tests** (shared 22, API 56 against real Postgres, storefront 63, admin 68) plus **11 Playwright browser tests** (`pnpm e2e`). Typecheck and production builds pass for every package from a clean `--force` build.
+Last verified: 2026-11-03 (v1.3). Totals: **306 automated tests** (shared 35, API 66 against real Postgres, storefront 92, admin 113) plus **15 Playwright browser tests** (`pnpm e2e`). Typecheck and production builds pass for every package from a clean `--force` build.
 
 ## Verification performed (beyond unit tests)
 - **Real browser, storefront**: home → category → PDP (variant selector) → add to bag → guest checkout → TEST MODE payment → server signature verification → confirmation. Result in the DB: order `CONFIRMED`, payment `CAPTURED`. No page errors, and no horizontal overflow at 390px.
@@ -31,6 +31,21 @@ Last verified: 2026-11-03 (v1.2). Totals: **209 automated tests** (shared 22, AP
 | AI virtual try-on (Gemini): selfie + garment → preview; photo never stored; 18+/own-photo consent; kids refused; per-session 5/day + global daily cap | ✅ Done | API tests (nothing written to disk, caps, slots); live Gemini try-on verified (identity, pose and background preserved) |
 | Mobile polish: sticky add-to-bag, swipe gallery, quick view, UPI-first checkout, 44px tap targets, iOS safe area | ✅ Done | storefront tests + E2E sticky bar on Pixel 7 |
 | Playwright E2E suite + CI e2e job | ✅ Done | 11 passing locally (+1 mobile-only skip on desktop); CI job not yet run on GitHub |
+
+## v1.3: festival campaigns and offers
+| Feature | Status | Verified by |
+| --- | --- | --- |
+| Campaigns with teaser / early access / live / end, phase derived from the clock (IST shown, UTC stored), publish checklist, preview at any instant, pause/resume/cancel, disclosed extensions | ✅ Done | shared boundary tests; API tests (ends with no job running, extension disclosure, ended sales can't be reopened) |
+| Sale prices per variant (manual or bulk "X% off regular", rounded down to ₹…9), never below cost, stock caps, per-customer limits (account/email/phone), running sales only get better | ✅ Done | API tests (caps atomic, limits, price raise refused, paused-after-start locked) |
+| One price resolver for cards, PDP, bag, checkout; listing read model refreshed at boundaries; checkout stops with `PRICE_CHANGED` instead of charging more | ✅ Done | API tests; Playwright: banner claim, landing page, PDP and bag agree with the server |
+| Bundle promotions ("buy 2, extra 10%"), auto-apply coupons (best wins), non-combinable coupons keep the better offer and say so | ✅ Done | shared engine tests; API tests |
+| Discount ledger per order line and source; campaign report; budget auto-pause | ✅ Done | API tests |
+| Return preview with honest claw-back of offers kept items lose (given back if the rest is returned) | ✅ Done | API test: two returns refund exactly what was paid; storefront unit tests |
+| "Remind me" with WhatsApp/email once per phase (early access for opted-in customers) | ✅ Done (**2 new WhatsApp templates pending approval**: `vyra_sale_live`, `vyra_sale_ending`) | API test |
+| Admin campaign screens (list, form, prices, bundles, checklist, preview, report), coupon offer options, order savings breakdown | ✅ Done | admin unit tests; Playwright walkthrough at 1280/390 (throwaway draft created, priced, checked, deleted) |
+| Storefront sale banner, `/sale/[slug]`, campaign tags, MRP-only strike-through, bag/checkout offer lines, return preview | ✅ Done | storefront unit tests; Playwright at 1280/390 |
+
+Campaign limitations: per-customer limits are checked just before the order transaction, so two simultaneous orders by the same person could exceed a limit (stock caps are strictly atomic). A budget can be overshot by the orders in flight when it runs out. Product pages show public prices (cached), so early-access prices appear in the bag. The PDP early-access note checks the first 100 sale products. Order detail shows "Bundle offer" rather than the bundle's name. Campaign / promotion / bulk-response DTOs for the admin are typed locally in `apps/admin/src/lib/types.ts`, not yet in `packages/shared`.
 
 ## Module checklist
 | Module | Status | Notes |
@@ -68,7 +83,7 @@ Last verified: 2026-11-03 (v1.2). Totals: **209 automated tests** (shared 22, AP
 11. The in-memory mock payment provider loses pending mock orders on API restart (dev only).
 
 ## Required external configuration
-Razorpay keys + webhook secret · Shiprocket API user + pickup PIN · SMTP · **MSG91 (DLT-registered OTP template)** · **WhatsApp Business (Meta) + 5 approved templates** · Gemini API key (or keep `local`) · S3/R2 bucket + CDN for production media · GS1 India prefix (only for marketplace selling) · Seller GSTIN/address · Sentry DSN.
+Razorpay keys + webhook secret · Shiprocket API user + pickup PIN · SMTP · **MSG91 (DLT-registered OTP template)** · **WhatsApp Business (Meta) + 7 approved templates** · Gemini API key (or keep `local`) · S3/R2 bucket + CDN for production media · GS1 India prefix (only for marketplace selling) · Seller GSTIN/address · Sentry DSN.
 
 ## Next phases (all blocked on accounts only the business can create)
 1. Razorpay test keys → run 10 sandbox payments/refunds; then live ₹1 test.

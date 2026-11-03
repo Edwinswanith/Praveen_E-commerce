@@ -6,7 +6,17 @@ import {
   campaignBulkPriceSchema, campaignExtendSchema, campaignPricesSchema, campaignSchema, promotionSchema, remindMeSchema,
   type CampaignInput, type PromotionInput,
 } from '@vyra/shared';
-import { ZodPipe } from '../../common/http/zod.pipe';
+import { parseOrThrow, ZodPipe } from '../../common/http/zod.pipe';
+
+/**
+ * PATCH bodies: zod 4 `.partial()` still fills defaults, which would silently
+ * reset omitted fields (priority → 0, scope → []). Keep only keys the client sent.
+ */
+function patchOf<T extends z.ZodType>(schema: T, raw: unknown): Partial<z.infer<T>> {
+  const data = parseOrThrow((schema as unknown as z.ZodObject).partial(), raw);
+  const sent = new Set(Object.keys((raw ?? {}) as object));
+  return Object.fromEntries(Object.entries(data as object).filter(([k]) => sent.has(k))) as Partial<z.infer<T>>;
+}
 import { CurrentUser, OptionalAuth, Public, RequirePermissions, StaffOnly, type AuthUser } from '../auth/auth.decorators';
 import { ProductsService } from '../products/products.service';
 import { CampaignsService } from './campaigns.service';
@@ -61,7 +71,7 @@ export class AdminCampaignsController {
   get(@Param('id') id: string) { return this.campaigns.get(id); }
 
   @RequirePermissions('promotions:write') @Patch(':id')
-  update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(campaignSchema.partial())) b: Partial<CampaignInput>) { return this.campaigns.update(id, b, actorOf(u)); }
+  update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() raw: unknown) { return this.campaigns.update(id, patchOf(campaignSchema, raw) as Partial<CampaignInput>, actorOf(u)); }
 
   @RequirePermissions('promotions:write') @HttpCode(204) @Delete(':id')
   remove(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.campaigns.remove(id, actorOf(u)); }
@@ -116,7 +126,7 @@ export class AdminPromotionsController {
   create(@CurrentUser() u: AuthUser, @Body(new ZodPipe(promotionSchema)) b: PromotionInput) { return this.campaigns.createPromotion(b, actorOf(u)); }
 
   @RequirePermissions('promotions:write') @Patch(':id')
-  update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(promotionSchema.partial())) b: Partial<PromotionInput>) { return this.campaigns.updatePromotion(id, b, actorOf(u)); }
+  update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() raw: unknown) { return this.campaigns.updatePromotion(id, patchOf(promotionSchema, raw) as Partial<PromotionInput>, actorOf(u)); }
 
   @RequirePermissions('promotions:write') @HttpCode(204) @Delete(':id')
   remove(@CurrentUser() u: AuthUser, @Param('id') id: string) { return this.campaigns.removePromotion(id, actorOf(u)); }

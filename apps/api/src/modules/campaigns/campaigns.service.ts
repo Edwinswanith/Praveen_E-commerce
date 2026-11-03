@@ -30,6 +30,13 @@ type BulkInput = z.infer<typeof campaignBulkPriceSchema>;
 /** Phases during which the sale price is (or may be) charged: prices may only go down. */
 const SELLING: CampaignPhase[] = ['EARLY_ACCESS', 'LIVE'];
 
+/** Has this published campaign started selling (incl. paused after its start)? Then its deals are locked to "only better". */
+function hasStarted(c: Campaign, at = new Date()): boolean {
+  if (c.status === 'DRAFT') return false;
+  const phase = computeCampaignPhase(c, at);
+  return SELLING.includes(phase) || (phase === 'PAUSED' && (c.earlyAccessStartsAt ?? c.startsAt) <= at);
+}
+
 @Injectable()
 export class CampaignsService implements OnModuleInit {
   private readonly logger = new Logger('Campaigns');
@@ -145,7 +152,7 @@ export class CampaignsService implements OnModuleInit {
     const c = await this.load(id);
     const phase = computeCampaignPhase(c);
     if (phase === 'ENDED' || phase === 'CANCELLED') throw badRequest('An ended or cancelled campaign cannot be edited. Duplicate it instead.');
-    const started = c.status !== 'DRAFT' && (SELLING.includes(phase) || (phase === 'PAUSED' && c.startsAt <= new Date()));
+    const started = hasStarted(c);
     if (started) {
       if (b.startsAt && b.startsAt.getTime() !== c.startsAt.getTime()) throw badRequest('The start of a running sale cannot change');
       if (b.earlyAccessStartsAt !== undefined && (b.earlyAccessStartsAt?.getTime() ?? null) !== (c.earlyAccessStartsAt?.getTime() ?? null)) throw badRequest('Early access of a running sale cannot change');
@@ -205,6 +212,7 @@ export class CampaignsService implements OnModuleInit {
     const c = await this.load(id);
     if (c.status === 'DRAFT') throw badRequest('Edit the end date of a draft directly');
     if (c.status === 'CANCELLED') throw badRequest('A cancelled campaign cannot be extended');
+    if (computeCampaignPhase(c) === 'ENDED') throw badRequest('An ended sale cannot be reopened. Create a new campaign instead.');
     if (endsAt <= c.endsAt) throw badRequest('An extension must end later than the current end');
     if (endsAt <= new Date()) throw badRequest('The new end must be in the future');
     this.windowOrThrow({ teaserStartsAt: c.teaserStartsAt, earlyAccessStartsAt: c.earlyAccessStartsAt, startsAt: c.startsAt, endsAt });
@@ -254,7 +262,7 @@ export class CampaignsService implements OnModuleInit {
     const c = await this.load(id);
     const phase = computeCampaignPhase(c);
     if (phase === 'ENDED' || phase === 'CANCELLED') throw badRequest('Prices of an ended or cancelled campaign cannot change');
-    const selling = c.status !== 'DRAFT' && (SELLING.includes(phase) || phase === 'PAUSED');
+    const selling = hasStarted(c);
     const variants = await this.prisma.productVariant.findMany({ where: { id: { in: items.map((i) => i.variantId) } }, include: { product: { select: { name: true } } } });
     const byId = new Map(variants.map((v) => [v.id, v]));
     const existing = new Map((await this.prisma.campaignPrice.findMany({ where: { campaignId: id, variantId: { in: items.map((i) => i.variantId) } } })).map((p) => [p.variantId, p]));
@@ -303,7 +311,8 @@ export class CampaignsService implements OnModuleInit {
       const sale = bulkSalePrice(decToPaise(v.price), b.percentOff, b.roundToNine);
       if (v.costPrice && sale < decToPaise(v.costPrice)) { skippedBelowCost++; continue; }
       if (sale >= decToPaise(v.price) || sale <= 0) continue;
-      items.push({ variantId: v.id, salePrice: fromPaise(sale), stockCap: b.stockCap ?? null, perCustomerLimit: b.perCustomerLimit ?? null });
+      // undefined = keep an existing cap/limit; only an explicit value (or null) changes it.
+      items.push({ variantId: v.id, salePrice: fromPaise(sale), stockCap: b.stockCap, perCustomerLimit: b.perCustomerLimit });
     }
     const rows = items.length ? await this.setPrices(id, items, actor) : await this.prices(id);
     return { rows, applied: items.length, skippedBelowCost };
@@ -311,8 +320,7 @@ export class CampaignsService implements OnModuleInit {
 
   async removePrice(id: string, variantId: string, actor: Actor) {
     const c = await this.load(id);
-    const phase = computeCampaignPhase(c);
-    if (c.status !== 'DRAFT' && SELLING.includes(phase)) throw badRequest('A deal cannot be removed while the sale is running (it was advertised). Set a stock cap instead.');
+    if (hasStarted(c)) throw badRequest('A deal cannot be removed once the sale has started (it was advertised). Set a stock cap instead.');
     const p = await this.prisma.campaignPrice.findUnique({ where: { campaignId_variantId: { campaignId: id, variantId } }, include: { variant: true } });
     if (!p) throw notFound('Campaign price');
     await this.prisma.campaignPrice.delete({ where: { id: p.id } });

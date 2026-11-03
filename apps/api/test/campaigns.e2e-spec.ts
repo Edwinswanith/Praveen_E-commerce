@@ -276,6 +276,27 @@ describe('Festival campaigns, offers and the discount ledger (integration)', () 
     await s.post('/api/v1/returns').set(H).send({ orderId: order.id, type: 'EXCHANGE', reason: 'SIZE_ISSUE', items: [{ orderItemId: d.items[0].id, quantity: 1, exchangeVariantId: l!.id }] }).expect(201);
   });
 
+  it('PATCH changes only the fields sent; bulk rules keep caps; ended sales cannot be reopened', async () => {
+    const p = await newProduct();
+    const c = await campaign({ priority: 7 });
+    await admin.patch(`/api/v1/admin/campaigns/${c.id}`).set(H).send({ description: 'Updated' }).expect(200);
+    expect((await prisma.campaign.findUniqueOrThrow({ where: { id: c.id } })).priority).toBe(7);
+    const promo = (await admin.post('/api/v1/admin/promotions').set(H).send({ name: 'Trio deal', campaignId: c.id, minQuantity: 3, percentOff: 12, productIds: [p.id] }).expect(201)).body.data;
+    await admin.patch(`/api/v1/admin/promotions/${promo.id}`).set(H).send({ name: 'Trio deal plus' }).expect(200);
+    expect((await prisma.promotion.findUniqueOrThrow({ where: { id: promo.id } })).productIds).toEqual([p.id]);
+
+    const v = p.variants[0]!;
+    await admin.put(`/api/v1/admin/campaigns/${c.id}/prices`).set(H).send({ items: [{ variantId: v.id, salePrice: 699, stockCap: 5 }] }).expect(200);
+    await admin.post(`/api/v1/admin/campaigns/${c.id}/prices/bulk`).set(H).send({ productIds: [p.id], percentOff: 20, roundToNine: true }).expect(200);
+    expect((await prisma.campaignPrice.findFirstOrThrow({ where: { campaignId: c.id, variantId: v.id } })).stockCap).toBe(5);
+
+    await admin.post(`/api/v1/admin/campaigns/${c.id}/publish`).set(H).expect(200);
+    await admin.post(`/api/v1/admin/campaigns/${c.id}/pause`).set(H).send({}).expect(200);
+    await admin.delete(`/api/v1/admin/campaigns/${c.id}/prices/${v.id}`).set(H).expect(400); // paused after start: still locked
+    await prisma.campaign.update({ where: { id: c.id }, data: { endsAt: new Date(Date.now() - 1000) } });
+    await admin.post(`/api/v1/admin/campaigns/${c.id}/extend`).set(H).send({ endsAt: new Date(Date.now() + 24 * HOUR), note: 'Try to reopen' }).expect(400);
+  });
+
   it('sends opted-in reminders once per phase', async () => {
     const c = await campaign();
     const p = await newProduct();

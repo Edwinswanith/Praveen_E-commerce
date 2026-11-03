@@ -70,7 +70,7 @@ export function DataTable<T>({
       {error && !data ? (
         <div className="p-4"><ErrorState error={error} onRetry={onRetry} /></div>
       ) : (
-        <div className="overflow-x-auto scrollbar-thin">
+        <div className="relative overflow-x-auto scrollbar-thin">
           <table className="w-full border-collapse text-sm">
             <thead>
               {table.getHeaderGroups().map((hg) => (

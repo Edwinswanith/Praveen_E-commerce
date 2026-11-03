@@ -115,7 +115,7 @@ export function PriceTable({ rows, rules, canWrite, onSave, onRemove }: {
   const cols = editable ? 11 : 10;
   if (!rows.length) return <p className="px-4 py-8 text-center text-sm text-muted">No rows match the filter.</p>;
   return (
-    <div className="overflow-x-auto scrollbar-thin">
+    <div className="relative overflow-x-auto scrollbar-thin">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border bg-surface text-left">

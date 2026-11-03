@@ -79,7 +79,7 @@ export function ReportTab({ campaignId }: { campaignId: string }) {
         <Card className="overflow-hidden">
           <CardHeader><CardTitle>Sell-through</CardTitle><span className="text-xs text-muted">Top 50 deals by units sold</span></CardHeader>
           {r.sellThrough.length ? (
-            <div className="max-h-96 overflow-auto">
+            <div className="relative max-h-96 overflow-auto">
               <table className={tableCls}>
                 <thead className="sticky top-0"><tr className="border-b border-border bg-surface text-left"><th scope="col" className={thCls}>Variant</th><th scope="col" className={cn(thCls, 'text-right')}>Sold / cap</th><th scope="col" className={thCls}><span className="sr-only">Progress</span></th></tr></thead>
                 <tbody>{r.sellThrough.map((s) => {
