@@ -167,6 +167,7 @@ export const api = {
   get: <T>(path: string, query?: Query, signal?: AbortSignal) => request<T>(path, { query, signal }).then((r) => r.data),
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body: body ?? {} }).then((r) => r.data),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body: body ?? {} }).then((r) => r.data),
+  put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body: body ?? {} }).then((r) => r.data),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }).then((r) => r.data),
   upload: <T>(path: string, form: FormData, query?: Query) => request<T>(path, { method: 'POST', body: form, query }).then((r) => r.data),
   blob: requestBlob,

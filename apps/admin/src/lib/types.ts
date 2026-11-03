@@ -42,3 +42,28 @@ export interface ReturnsReport { requests: number; refunded: number; byReason: {
 
 /** GET /api/v1/health */
 export type { HealthDto } from '@vyra/shared';
+
+// ---------- Campaigns ----------
+// Not in @vyra/shared yet: shapes mirror CampaignsService.toPromotionDto / preview / bulkPrices.
+
+/** GET /admin/promotions (bundle offers such as "Buy 2, extra 10% off"). */
+export interface PromotionAdminDto {
+  id: string; campaignId: string | null; name: string; minQuantity: number; percentOff: number; maxDiscount: number | null;
+  categoryIds: string[]; productIds: string[]; startsAt: string | null; endsAt: string | null;
+  isActive: boolean; usageLimit: number | null; usedCount: number; createdAt: string;
+}
+
+/** GET /admin/campaigns/:id/preview?at= */
+export interface CampaignPreviewDto {
+  at: string;
+  campaign: import('@vyra/shared').CampaignPublicDto;
+  salePriceApplies: boolean;
+  earlyAccessApplies: boolean;
+}
+
+/** POST /admin/campaigns/:id/prices/bulk */
+export interface CampaignBulkResultDto {
+  rows: import('@vyra/shared').CampaignPriceRowDto[];
+  applied: number;
+  skippedBelowCost: number;
+}
