@@ -52,7 +52,7 @@ export function VariantSelector({
                   title={c.name}
                   onClick={() => onChange(selectColor(variants, selection, c.name))}
                   className={cn(
-                    'relative flex size-10 items-center justify-center rounded-full border-2 transition-colors',
+                    'relative flex size-11 items-center justify-center rounded-full border-2 transition-colors',
                     selected ? 'border-brand-500' : 'border-transparent hover:border-border-strong',
                   )}
                 >

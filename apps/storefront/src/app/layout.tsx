@@ -46,6 +46,8 @@ export const viewport: Viewport = {
   themeColor: '#ff3f6c',
   width: 'device-width',
   initialScale: 1,
+  // Lets the sticky add-to-bag bar use env(safe-area-inset-bottom) on notched iPhones.
+  viewportFit: 'cover',
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

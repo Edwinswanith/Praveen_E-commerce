@@ -44,15 +44,15 @@ export function WishlistButton({
         e.stopPropagation();
         void toggle(productId);
       }}
-      className={cn(
-        'flex size-8 items-center justify-center rounded-full bg-bg/90 shadow-sm backdrop-blur transition-transform hover:scale-105',
-        className,
-      )}
+      className={cn('group/wish flex size-11 items-center justify-center rounded-full', className)}
     >
-      <Heart
-        className={cn('size-4', active ? 'fill-brand-500 text-brand-500' : 'text-fg')}
-        aria-hidden
-      />
+      {/* 44px hit area, 32px visual */}
+      <span className="flex size-8 items-center justify-center rounded-full bg-bg/90 shadow-sm backdrop-blur transition-transform group-hover/wish:scale-105">
+        <Heart
+          className={cn('size-4', active ? 'fill-brand-500 text-brand-500' : 'text-fg')}
+          aria-hidden
+        />
+      </span>
     </button>
   );
 }

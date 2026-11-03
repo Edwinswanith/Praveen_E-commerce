@@ -1,6 +1,6 @@
 # Development roadmap & status
 
-Last verified: 2026-11-03 (v1.1). Totals: **157 automated tests** (shared 21, API 46 against real Postgres, storefront 35, admin 55) plus **6 Playwright browser tests** (`pnpm e2e`). Typecheck and production builds pass for every package from a clean `--force` build.
+Last verified: 2026-11-03 (v1.2). Totals: **209 automated tests** (shared 22, API 56 against real Postgres, storefront 63, admin 68) plus **11 Playwright browser tests** (`pnpm e2e`). Typecheck and production builds pass for every package from a clean `--force` build.
 
 ## Verification performed (beyond unit tests)
 - **Real browser, storefront**: home → category → PDP (variant selector) → add to bag → guest checkout → TEST MODE payment → server signature verification → confirmation. Result in the DB: order `CONFIRMED`, payment `CAPTURED`. No page errors, and no horizontal overflow at 390px.
@@ -27,7 +27,10 @@ Last verified: 2026-11-03 (v1.1). Totals: **157 automated tests** (shared 21, AP
 | Garment-tag QR → product page with variant preselected (customer scan) | ✅ Done | printed QR decoded with ZXing → redirect → PDP shows scanned colour/size; E2E test |
 | Barcode label fixes: quiet zone on PNGs, MRP (incl. of all taxes) per Legal Metrology | ✅ Done | ZXing decodes EAN-13/Code128/QR PNGs, thermal label, 24/24 A4 labels |
 | AI catalogue photos committed as seed assets (182 images, 12 MB) | ✅ Done | fresh empty DB seeded: 182 AI photos, 0 drawings |
-| Playwright E2E suite + CI e2e job | ✅ Done | 8/8 locally; CI job not yet run on GitHub |
+| Conversion funnel (first-party, cookie-less): view → bag → checkout → order, device, first-touch source incl. garment-tag QR, product view→bag, admin dashboard with biggest-leak callout | ✅ Done | API funnel-math tests (server-only revenue events, replay dedupe, bots ignored); E2E: real journey appears in the funnel with its source |
+| AI virtual try-on (Gemini): selfie + garment → preview; photo never stored; 18+/own-photo consent; kids refused; per-session 5/day + global daily cap | ✅ Done | API tests (nothing written to disk, caps, slots); live Gemini try-on verified (identity, pose and background preserved) |
+| Mobile polish: sticky add-to-bag, swipe gallery, quick view, UPI-first checkout, 44px tap targets, iOS safe area | ✅ Done | storefront tests + E2E sticky bar on Pixel 7 |
+| Playwright E2E suite + CI e2e job | ✅ Done | 11 passing locally (+1 mobile-only skip on desktop); CI job not yet run on GitHub |
 
 ## Module checklist
 | Module | Status | Notes |
@@ -61,7 +64,8 @@ Last verified: 2026-11-03 (v1.1). Totals: **157 automated tests** (shared 21, AP
 7. GST slab logic (5% ≤ ₹2,500 per piece, else 18%, prices inclusive) must be confirmed by a CA. HSN codes are per product.
 8. Demo catalogue images are AI-generated from product text (`pnpm --filter @vyra/api photos:generate`). They are realistic but **do not depict real stock**: before launch, photograph each real garment (a phone photo is enough) and use admin → product → "AI studio photo" to turn it into catalogue shots.
 9. Product pages are cached 60s; when images are replaced, old files are deleted immediately, so a cached page can briefly show broken images until it revalidates. Fix: delete replaced files after the cache window (or trigger on-demand revalidation).
-10. The in-memory mock payment provider loses pending mock orders on API restart (dev only).
+10. Virtual try-on quality depends on the customer's photo (full upper body, good light); results are AI previews and are labelled as such. Breadcrumb links are still below 44px tap height.
+11. The in-memory mock payment provider loses pending mock orders on API restart (dev only).
 
 ## Required external configuration
 Razorpay keys + webhook secret · Shiprocket API user + pickup PIN · SMTP · **MSG91 (DLT-registered OTP template)** · **WhatsApp Business (Meta) + 5 approved templates** · Gemini API key (or keep `local`) · S3/R2 bucket + CDN for production media · GS1 India prefix (only for marketplace selling) · Seller GSTIN/address · Sentry DSN.
