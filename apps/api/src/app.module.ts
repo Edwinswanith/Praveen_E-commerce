@@ -1,0 +1,77 @@
+import { Global, MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ENV, loadEnv } from './config/env';
+import { PrismaService } from './common/prisma/prisma.service';
+import { AuditService } from './common/audit/audit.service';
+import { MailService } from './common/mail/mail.service';
+import { StorageService } from './common/storage/storage.service';
+import { QueueService } from './common/queue/queue.service';
+import { AllExceptionsFilter } from './common/http/exception.filter';
+import { EnvelopeInterceptor } from './common/http/envelope';
+import { CsrfMiddleware, RequestContextMiddleware } from './common/http/request-context';
+import { AuthGuard } from './modules/auth/auth.guard';
+import { AuthService } from './modules/auth/auth.service';
+import { TokenService } from './modules/auth/token.service';
+import { AuthController, StaffAuthController } from './modules/auth/auth.controller';
+import { AuditLogController, MeController, StaffUsersController } from './modules/users/users.controller';
+import { CategoriesService } from './modules/categories/categories.service';
+import { AdminCategoriesController, CategoriesController } from './modules/categories/categories.controller';
+import { ProductsService } from './modules/products/products.service';
+import { ProductImportService } from './modules/products/import.service';
+import { AdminProductsController, ProductsController, ReviewWriteController } from './modules/products/products.controller';
+import { BarcodesService } from './modules/barcodes/barcodes.service';
+import { InventoryService } from './modules/inventory/inventory.service';
+import { BarcodesController, InventoryController } from './modules/inventory/inventory.controller';
+import { MediaService } from './modules/media/media.service';
+import { EmbeddingService } from './modules/ai/embedding.service';
+import { CouponsService } from './modules/coupons/coupons.service';
+import { CartService } from './modules/carts/cart.service';
+import { CartController, PublicCouponsController } from './modules/carts/cart.controller';
+import { WishlistController } from './modules/wishlist/wishlist.controller';
+import { PaymentsGateway } from './modules/payments/payments.gateway';
+import { ShippingService } from './modules/shipping/shipping.service';
+import { OrdersService } from './modules/orders/orders.service';
+import { InvoiceService } from './modules/orders/invoice.service';
+import { AdminOrdersController, CheckoutController, CustomerOrdersController } from './modules/orders/orders.controller';
+import { SearchService } from './modules/search/search.service';
+import { AdminAiController, SearchController } from './modules/search/search.controller';
+import { AnalyticsService } from './modules/analytics/analytics.service';
+import { AnalyticsController } from './modules/analytics/analytics.controller';
+import { AdminCouponsController, AdminCustomersController } from './modules/admin/admin.controller';
+import { HealthController } from './modules/admin/health.controller';
+
+/**
+ * Modular monolith. Domain code lives in src/modules/<domain>; this module only
+ * wires providers. Everything is in one Nest module deliberately: the domains
+ * share one database transaction boundary, and splitting into Nest sub-modules
+ * would add import ceremony without isolation benefits at this scale.
+ */
+@Global()
+@Module({
+  imports: [ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }])],
+  controllers: [
+    HealthController, AuthController, StaffAuthController, MeController, StaffUsersController, AuditLogController,
+    CategoriesController, AdminCategoriesController, ProductsController, ReviewWriteController, AdminProductsController,
+    InventoryController, BarcodesController, CartController, PublicCouponsController, WishlistController,
+    CheckoutController, CustomerOrdersController, AdminOrdersController, SearchController, AdminAiController,
+    AnalyticsController, AdminCouponsController, AdminCustomersController,
+  ],
+  providers: [
+    { provide: ENV, useFactory: () => loadEnv() },
+    PrismaService, AuditService, MailService, StorageService, QueueService,
+    TokenService, AuthService, CategoriesService, ProductsService, ProductImportService, BarcodesService, InventoryService,
+    MediaService, EmbeddingService, CouponsService, CartService, PaymentsGateway, ShippingService, OrdersService, InvoiceService,
+    SearchService, AnalyticsService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AuthGuard },
+    { provide: APP_INTERCEPTOR, useClass: EnvelopeInterceptor },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+  ],
+  exports: [PrismaService, EmbeddingService, QueueService, OrdersService],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestContextMiddleware, CsrfMiddleware).forRoutes('*');
+  }
+}

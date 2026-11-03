@@ -1,0 +1,23 @@
+@import 'tailwindcss';
+@import '@vyra/ui/styles.css';
+@source "../../../../packages/ui/src";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+  input[type='search']::-webkit-search-decoration {
+    -webkit-appearance: none;
+  }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

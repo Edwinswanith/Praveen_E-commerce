@@ -1,0 +1,32 @@
+@import "tailwindcss";
+@import "@vyra/ui/styles.css";
+@source "../../../../packages/ui/src";
+
+@theme {
+  --spacing-sidebar: 15rem;
+  --spacing-sidebar-collapsed: 4rem;
+}
+
+@layer base {
+  html, body { height: 100%; }
+  body { background: var(--color-surface); }
+  .tabular { font-variant-numeric: tabular-nums; }
+  input[type='number'] { font-variant-numeric: tabular-nums; }
+}
+
+@layer utilities {
+  .scrollbar-thin { scrollbar-width: thin; }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(calc(var(--scan-h, 200px) - 2px)); }
+  100% { transform: translateY(0); }
+}
+.animate-scan-line { animation: scan-line 2.4s ease-in-out infinite; }
+
+@keyframes flash-danger {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(220 38 38 / 0); }
+  50% { box-shadow: 0 0 0 6px rgb(220 38 38 / 0.35); }
+}
+.animate-flash-danger { animation: flash-danger 0.5s ease-in-out 3; }

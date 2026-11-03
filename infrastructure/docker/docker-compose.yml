@@ -1,0 +1,63 @@
+# Local development + single-host deployment.
+#   Dev (infra only):  pnpm db:up              → postgres (pgvector) + redis
+#   Full stack:        docker compose -f infrastructure/docker/docker-compose.yml --profile app up --build
+name: vyra
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: vyra
+      POSTGRES_PASSWORD: vyra
+      POSTGRES_DB: vyra
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U vyra"], interval: 5s, retries: 10 }
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: [redisdata:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10 }
+
+  api:
+    profiles: [app]
+    build: { context: ../.., dockerfile: infrastructure/docker/api.Dockerfile }
+    env_file: [../../apps/api/.env]
+    environment:
+      DATABASE_URL: postgresql://vyra:vyra@postgres:5432/vyra?schema=public
+      REDIS_URL: redis://redis:6379
+      RUN_WORKERS_IN_API: "false"
+      STORAGE_LOCAL_DIR: /data/storage
+    ports: ["4000:4000"]
+    volumes: [media:/data/storage]
+    depends_on: { postgres: { condition: service_healthy }, redis: { condition: service_healthy } }
+    command: ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
+
+  worker:
+    profiles: [app]
+    build: { context: ../.., dockerfile: infrastructure/docker/api.Dockerfile }
+    env_file: [../../apps/api/.env]
+    environment:
+      DATABASE_URL: postgresql://vyra:vyra@postgres:5432/vyra?schema=public
+      REDIS_URL: redis://redis:6379
+      STORAGE_LOCAL_DIR: /data/storage
+    volumes: [media:/data/storage]
+    depends_on: [api]
+    command: ["node", "dist/src/worker.js"]
+
+  storefront:
+    profiles: [app]
+    build: { context: ../.., dockerfile: infrastructure/docker/next.Dockerfile, args: { APP: storefront, API_URL: "http://api:4000" } }
+    environment: { API_URL: "http://api:4000", PORT: "3000" }
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+  admin:
+    profiles: [app]
+    build: { context: ../.., dockerfile: infrastructure/docker/next.Dockerfile, args: { APP: admin, API_URL: "http://api:4000" } }
+    environment: { API_URL: "http://api:4000", PORT: "3001" }
+    ports: ["3001:3001"]
+    depends_on: [api]
+
+volumes: { pgdata: {}, redisdata: {}, media: {} }

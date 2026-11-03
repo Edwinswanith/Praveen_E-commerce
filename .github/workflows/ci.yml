@@ -1,0 +1,32 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: vyra, POSTGRES_PASSWORD: vyra, POSTGRES_DB: vyra_test }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U vyra" --health-interval 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://vyra:vyra@localhost:5432/vyra_test?schema=public
+      DATABASE_URL: postgresql://vyra:vyra@localhost:5432/vyra_test?schema=public
+      JWT_ACCESS_SECRET: ci-only-secret-ci-only-secret-0123456789
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: apps/api/scripts/check-migrations.sh
+      - run: pnpm --filter @vyra/shared build
+      - run: pnpm --filter @vyra/api exec prisma migrate deploy
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+        env: { NODE_ENV: production }
