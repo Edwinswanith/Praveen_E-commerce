@@ -28,6 +28,13 @@ import { OrdersService } from '../modules/orders/orders.service';
 import { EmbeddingService } from '../modules/ai/embedding.service';
 import { PERMISSIONS, ROLE_PERMISSIONS } from '../modules/roles/permissions';
 import { garmentSvg, type GarmentKind } from './garments';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+/** Committed AI catalogue photos (see scripts/export-photos.ts). Resolved from src/ or dist/src/. */
+const PHOTO_DIR = [resolve(__dirname, '../../seed-assets/photos'), resolve(__dirname, '../../../seed-assets/photos')].find((d) => existsSync(join(d, 'manifest.json'))) ?? '';
+type PhotoEntry = { file: string; color: string | null; alt: string; sortOrder: number; aiPrompt: string | null };
+const PHOTO_MANIFEST: Record<string, PhotoEntry[]> = PHOTO_DIR ? JSON.parse(readFileSync(join(PHOTO_DIR, 'manifest.json'), 'utf8')) : {};
 
 type Cat = { name: string; slug: string; code: string; description: string; children?: Cat[] };
 const CATEGORIES: Cat[] = [
@@ -184,13 +191,22 @@ async function main() {
       sizeChart: d.sizes[0] === 'FREE' ? null : Object.fromEntries(d.sizes.map((s, k) => [s, { Chest: `${36 + k * 2} in`, Length: `${27 + k} in` }])),
       variants,
     }, ownerId);
-    // Two images per colour, tagged with the colour so the PDP gallery can switch.
-    let sort = 0;
-    for (const color of d.colors) {
-      for (const v of [0, 1] as const) {
-        const svg = Buffer.from(garmentSvg(d.kind, COLORS[color] ?? '#999999', v, `${color}`));
-        const s = await media.storeProductImage(created.id, svg, { allowSvg: true });
-        await prisma.productImage.create({ data: { productId: created.id, storageKey: s.key, url: s.url, thumbUrl: s.thumbUrl, width: s.width, height: s.height, mimeType: 'image/webp', bytes: s.bytes, contentHash: s.hash, color, alt: `${d.name} in ${color}${v ? ' (back)' : ''}`, sortOrder: sort++ } });
+    // Product photos: committed AI photography (seed-assets/photos) when available,
+    // otherwise generated illustrations. Both go through the real media pipeline.
+    const photos = PHOTO_MANIFEST[created.slug];
+    if (photos?.length) {
+      for (const ph of photos) {
+        const s = await media.storeProductImage(created.id, readFileSync(join(PHOTO_DIR, ph.file)));
+        await prisma.productImage.create({ data: { productId: created.id, storageKey: s.key, url: s.url, thumbUrl: s.thumbUrl, width: s.width, height: s.height, mimeType: 'image/webp', bytes: s.bytes, contentHash: s.hash, color: ph.color, alt: ph.alt, sortOrder: ph.sortOrder, aiGenerated: true, aiPrompt: ph.aiPrompt } });
+      }
+    } else {
+      let sort = 0;
+      for (const color of d.colors) {
+        for (const v of [0, 1] as const) {
+          const svg = Buffer.from(garmentSvg(d.kind, COLORS[color] ?? '#999999', v, `${color}`));
+          const s = await media.storeProductImage(created.id, svg, { allowSvg: true });
+          await prisma.productImage.create({ data: { productId: created.id, storageKey: s.key, url: s.url, thumbUrl: s.thumbUrl, width: s.width, height: s.height, mimeType: 'image/webp', bytes: s.bytes, contentHash: s.hash, color, alt: `${d.name} in ${color}${v ? ' (back)' : ''}`, sortOrder: sort++ } });
+        }
       }
     }
     // Opening stock through the ledger (STOCK_IN), with some deliberately low / out of stock.
