@@ -68,6 +68,9 @@ export class BarcodesService {
     const bcid = symbology === 'EAN13' ? 'ean13' : symbology === 'CODE128' ? 'code128' : 'qrcode';
     return bwipjs.toBuffer({
       bcid, text: value, scale: o.scale, includetext: o.text && symbology !== 'QR', textxalign: 'center',
+      // Quiet zone: scanners need a white margin (EAN-13 ≥ 11 modules left / 7 right). Without it
+      // a standalone PNG printed edge-to-edge will not scan.
+      paddingwidth: symbology === 'QR' ? 4 : 12, paddingheight: symbology === 'QR' ? 4 : 2, backgroundcolor: 'FFFFFF',
       ...(symbology === 'QR' ? { eclevel: 'M' } : { height: o.height }),
       ...(symbology === 'EAN13' ? { guardwhitespace: true } : {}),
     } as Parameters<typeof bwipjs.toBuffer>[0]);
@@ -113,7 +116,8 @@ export class BarcodesService {
         doc.font('Helvetica-Bold').fontSize(thermal ? 6.5 : 7.5).fillColor('#171717')
           .text(`${v.product.brand} · ${v.product.name}`.slice(0, 48), x, y, { width: w, lineBreak: false, ellipsis: true });
         doc.font('Helvetica').fontSize(thermal ? 6 : 7)
-          .text(`${v.color} / ${v.size}   ${formatINR(decToNum(v.price)).replace('₹', 'Rs.')}`, x, y + (thermal ? 8 : 10), { width: w, lineBreak: false });
+          // Legal Metrology (Packaged Commodities) Rules: retail labels must show MRP inclusive of all taxes.
+          .text(`${v.color} / ${v.size}   MRP ${formatINR(decToNum(v.mrp)).replace('₹', 'Rs.')} (incl. of all taxes)`, x, y + (thermal ? 8 : 10), { width: w, lineBreak: false, ellipsis: true });
         const imgTop = y + (thermal ? 16 : 20);
         const imgH = h - (thermal ? 16 : 20);
         doc.image(png, symbology === 'QR' ? x + (w - imgH) / 2 : x, imgTop, symbology === 'QR' ? { fit: [imgH, imgH] } : { fit: [w, imgH], align: 'center' });

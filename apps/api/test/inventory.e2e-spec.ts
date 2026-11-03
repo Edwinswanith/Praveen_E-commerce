@@ -93,6 +93,10 @@ describe('Catalog, barcodes and inventory (integration)', () => {
     const v = product.variants[0]!;
     const png = await inv.get(`/api/v1/admin/barcodes/${v.id}.png?symbology=EAN13`).buffer(true).expect(200);
     expect(png.headers['content-type']).toContain('image/png');
+    // Quiet zone: the outer columns must be pure white or a printed PNG won't scan.
+    const sharp = (await import('sharp')).default;
+    const { data, info } = await sharp(Buffer.from(png.body)).flatten({ background: '#ffffff' }).greyscale().raw().toBuffer({ resolveWithObject: true });
+    for (let y = 0; y < info.height; y++) for (const x of [0, 1, 2, 3, 4, info.width - 1, info.width - 2]) expect(data[y * info.width + x]).toBeGreaterThan(250);
     const pdf = await inv.post('/api/v1/admin/barcodes/labels').set(H).send({ items: [{ variantId: v.id, copies: 30 }], format: 'A4_3x8', symbology: 'CODE128' }).buffer(true).expect(200);
     expect(pdf.headers['content-type']).toContain('application/pdf');
     expect(Buffer.from(pdf.body).subarray(0, 4).toString()).toBe('%PDF');
