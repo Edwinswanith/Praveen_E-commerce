@@ -2,11 +2,16 @@ import type { ReturnRequestDto } from '@vyra/shared';
 
 export type ReturnItem = ReturnRequestDto['items'][number];
 
-/** "M → L, Black" (size change) or "Navy, M" (colour-only change) from the original SKU and the exchange target. */
+/**
+ * Describes an exchange from the original colour/size to the target:
+ * size only "M → L, Black"; colour only "Black → Navy, M"; both "Black M → Navy L".
+ */
 export function exchangeLabel(i: ReturnItem): string {
   const to = i.exchangeFor;
   if (!to) return '';
-  const parts = i.sku.split('-');
-  const fromSize = parts[parts.length - 1] ?? '';
-  return fromSize && fromSize.toUpperCase() !== to.size.toUpperCase() ? `${fromSize} → ${to.size}, ${to.color}` : `${to.color}, ${to.size}`;
+  const sameSize = i.size.toUpperCase() === to.size.toUpperCase();
+  const sameColor = i.color.toLowerCase() === to.color.toLowerCase();
+  if (!sameSize && sameColor) return `${i.size} → ${to.size}, ${to.color}`;
+  if (sameSize && !sameColor) return `${i.color} → ${to.color}, ${to.size}`;
+  return `${i.color} ${i.size} → ${to.color} ${to.size}`;
 }

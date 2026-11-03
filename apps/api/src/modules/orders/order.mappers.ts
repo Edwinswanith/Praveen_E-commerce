@@ -28,7 +28,7 @@ export function toReturnDto(r: Prisma.ReturnRequestGetPayload<{ include: typeof 
     replacementOrderNumber: r.replacementOrderId ? extras.orderNumbers.get(r.replacementOrderId) ?? null : null,
     items: r.items.map((i) => {
       const v = i.exchangeVariantId ? extras.variants.get(i.exchangeVariantId) : undefined;
-      return { orderItemId: i.orderItemId, name: i.orderItem.productName, sku: i.orderItem.sku, quantity: i.quantity, exchangeFor: i.exchangeVariantId && v ? { variantId: i.exchangeVariantId, ...v } : null };
+      return { orderItemId: i.orderItemId, name: i.orderItem.productName, sku: i.orderItem.sku, quantity: i.quantity, color: i.orderItem.color, size: i.orderItem.size, exchangeFor: i.exchangeVariantId && v ? { variantId: i.exchangeVariantId, ...v } : null };
     }),
     createdAt: r.createdAt.toISOString(),
   };
@@ -48,7 +48,7 @@ export async function loadExtras(prisma: { productVariant: { findMany: Function 
 export function toOrderSummary(o: Prisma.OrderGetPayload<{ include: { items: true; payments: true } }>): OrderSummaryDto {
   const last = o.payments[o.payments.length - 1];
   return {
-    id: o.id, number: o.number, status: o.status, paymentMethod: o.paymentMethod, paymentStatus: last?.status ?? null, grandTotal: decToNum(o.grandTotal),
+    id: o.id, number: o.number, status: o.status, paymentMethod: o.paymentMethod, paymentStatus: last?.status ?? null, codConfirmation: o.codConfirmation, grandTotal: decToNum(o.grandTotal),
     itemCount: o.items.reduce((s, i) => s + i.quantity, 0), customerName: o.customerName, customerEmail: o.customerEmail, createdAt: o.createdAt.toISOString(),
     previewImages: o.items.map((i) => i.imageUrl).filter((x): x is string => !!x).slice(0, 4),
   };

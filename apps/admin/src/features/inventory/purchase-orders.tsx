@@ -217,7 +217,7 @@ export function PurchaseOrderDetail({ id }: { id: string }) {
             <KeyValue items={[
               { label: 'Supplier', value: po.supplier?.name ?? '—' },
               { label: 'Reference', value: po.reference ?? '—' },
-              { label: 'Ordered', value: formatDateTime(po.orderedAt ?? po.createdAt) },
+              { label: 'Ordered', value: formatDateTime(po.orderedAt) },
               { label: 'Received', value: po.receivedAt ? formatDateTime(po.receivedAt) : '—' },
               { label: 'Notes', value: po.notes ?? '—' },
             ]} />

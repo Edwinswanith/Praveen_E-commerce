@@ -80,7 +80,7 @@ export function OrderDetail({ id }: { id: string }) {
         description={<span className="flex flex-wrap items-center gap-2"><StatusBadge value={o.status} tone={ORDER_STATUS_TONE[o.status]} label={ORDER_STATUS_LABEL[o.status]} /><span>Placed {formatDateTime(o.createdAt)}</span><span>· {o.paymentMethod}</span></span>}
         actions={<>
           <Button variant="outline" size="sm" loading={invoicePending} onClick={() => void invoice()}><FileText /> Invoice</Button>
-          {canWrite && !o.shipment && ['CONFIRMED', 'PACKED'].includes(o.status) && <Button variant="outline" size="sm" onClick={() => setDialog('ship')}><Truck /> Create shipment</Button>}
+          {canWrite && !o.shipment && !codPending && ['CONFIRMED', 'PACKED'].includes(o.status) && <Button variant="outline" size="sm" onClick={() => setDialog('ship')}><Truck /> Create shipment</Button>}
           {canWrite && codPending && <Button variant="secondary" size="sm" onClick={() => setDialog('cod')}><PhoneCall /> Mark confirmed (called customer)</Button>}
           {can(PERM.ordersRefund) && refundable > 0 && <Button variant="outline" size="sm" onClick={() => setDialog('refund')}><IndianRupee /> Refund</Button>}
         </>}

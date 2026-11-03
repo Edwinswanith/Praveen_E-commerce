@@ -5,7 +5,7 @@ import ExcelJS from 'exceljs';
 import { z } from 'zod';
 import {
   barcodeLabelsSchema, inventoryMovementSchema, paginationSchema, purchaseOrderSchema, scanLookupSchema, supplierSchema,
-  toPaise, type InventoryMovementDto, type InventoryMovementInput, type ScanResultDto,
+  toPaise, type InventoryMovementDto, type PurchaseOrderDetailDto, type InventoryMovementInput, type ScanResultDto,
 } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ZodPipe } from '../../common/http/zod.pipe';
@@ -178,10 +178,13 @@ export class BarcodesController {
   }
 
   @RequirePermissions('inventory:read') @Get('purchase-orders/:id')
-  async purchaseOrder(@Param('id') id: string) {
+  async purchaseOrder(@Param('id') id: string): Promise<PurchaseOrderDetailDto> {
     const p = await this.prisma.purchaseOrder.findUnique({ where: { id }, include: { supplier: true, items: { include: { variant: { select: { sku: true, color: true, size: true, product: { select: { name: true } } } } } } } });
     if (!p) throw notFound('Purchase order');
-    return { ...p, totalCost: decToNum(p.totalCost), items: p.items.map((i) => ({ id: i.id, variantId: i.variantId, sku: i.variant.sku, productName: i.variant.product.name, color: i.variant.color, size: i.variant.size, quantity: i.quantity, receivedQuantity: i.receivedQuantity, unitCost: decToNum(i.unitCost) })) };
+    return {
+      id: p.id, number: p.number, status: p.status, reference: p.reference, notes: p.notes, totalCost: decToNum(p.totalCost), orderedAt: p.orderedAt.toISOString(), receivedAt: p.receivedAt?.toISOString() ?? null,
+      supplier: { ...p.supplier, createdAt: p.supplier.createdAt.toISOString(), updatedAt: p.supplier.updatedAt.toISOString() },
+      items: p.items.map((i) => ({ id: i.id, variantId: i.variantId, sku: i.variant.sku, productName: i.variant.product.name, color: i.variant.color, size: i.variant.size, quantity: i.quantity, receivedQuantity: i.receivedQuantity, unitCost: decToNum(i.unitCost) })) };
   }
 
   @RequirePermissions('inventory:write') @Post('purchase-orders')

@@ -22,22 +22,24 @@ import { ErrorState, Forbidden, PageHeader, StatCard } from '@/components/ui/fee
 import { Select } from '@/components/ui/controls';
 import { Dialog, Sheet } from '@/components/ui/dialog';
 import { useConfirm } from '@/components/ui/confirm';
+import { IntegrationsCard } from './integrations';
 
-type Tab = 'staff' | 'ai' | 'audit';
+type Tab = 'staff' | 'ai' | 'audit' | 'integrations';
 
 export function SettingsScreen() {
   const { can } = useAuth();
-  const available: { value: Tab; label: string; perm: string }[] = [
+  const available: { value: Tab; label: string; perm: string | null }[] = [
     { value: 'staff', label: 'Staff', perm: PERM.staffManage },
     { value: 'ai', label: 'AI search', perm: PERM.catalogWrite },
     { value: 'audit', label: 'Audit log', perm: PERM.auditRead },
-  ].filter((t) => can(t.perm)) as { value: Tab; label: string; perm: string }[];
+    { value: 'integrations', label: 'Integrations', perm: null },
+  ].filter((t) => t.perm === null || can(t.perm)) as { value: Tab; label: string; perm: string | null }[];
   const [f, setF] = useUrlState({ tab: '' });
   const tab = (available.find((t) => t.value === f.tab) ?? available[0])?.value;
   if (!tab) return <><PageHeader title="Settings" /><Forbidden /></>;
   return (
     <>
-      <PageHeader title="Settings" description="Team access, AI search index and audit trail." />
+      <PageHeader title="Settings" description="Team access, AI search index, audit trail and integration status." />
       <Tabs.Root value={tab} onValueChange={(v) => setF({ tab: v })}>
         <Tabs.List aria-label="Settings sections" className="mb-5 flex gap-1 border-b border-border">
           {available.map((t) => (
@@ -47,6 +49,7 @@ export function SettingsScreen() {
         {available.some((t) => t.value === 'staff') && <Tabs.Content value="staff"><StaffTab /></Tabs.Content>}
         {available.some((t) => t.value === 'ai') && <Tabs.Content value="ai"><AiTab /></Tabs.Content>}
         {available.some((t) => t.value === 'audit') && <Tabs.Content value="audit"><AuditTab /></Tabs.Content>}
+        <Tabs.Content value="integrations"><IntegrationsCard /></Tabs.Content>
       </Tabs.Root>
     </>
   );
@@ -75,7 +78,7 @@ function StaffTab() {
   }, [confirm, mutate]);
 
   const columns = React.useMemo<ColumnDef<StaffUserDto, unknown>[]>(() => [
-    { header: 'Name', id: 'name', cell: ({ row: { original: u } }) => <span className="block"><span className="block font-medium">{u.name}{u.id === user.id && <span className="ml-1.5 text-xs text-muted">(you)</span>}</span><span className="text-xs text-muted">{u.email}</span></span> },
+    { header: 'Name', id: 'name', cell: ({ row: { original: u } }) => <span className="block"><span className="block font-medium">{u.name}{u.id === user.id && <span className="ml-1.5 text-xs text-muted">(you)</span>}</span><span className="text-xs text-muted">{u.email ?? u.phone}</span></span> },
     {
       header: 'Role', accessorKey: 'role',
       cell: ({ row: { original: u } }) => !ASSIGNABLE.includes(u.role as never) || u.id === user.id ? <Badge tone="neutral">{humanize(u.role)}</Badge> : (

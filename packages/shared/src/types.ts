@@ -257,6 +257,7 @@ export interface OrderSummaryDto {
   status: OrderStatus;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus | null;
+  codConfirmation: CodConfirmation;
   grandTotal: number;
   itemCount: number;
   customerName: string;
@@ -318,7 +319,7 @@ export interface ReturnRequestDto {
   comments: string | null;
   refundAmount: number;
   replacementOrderNumber: string | null;
-  items: { orderItemId: string; name: string; sku: string; quantity: number; exchangeFor: { variantId: string; sku: string; color: string; size: string } | null }[];
+  items: { orderItemId: string; name: string; sku: string; quantity: number; color: string; size: string; exchangeFor: { variantId: string; sku: string; color: string; size: string } | null }[];
   createdAt: string;
 }
 
@@ -419,6 +420,21 @@ export interface AdminProductDetailDto extends Omit<ProductDetailDto, 'variants'
   isFeatured: boolean;
   categoryId: string;
   embedding: { text: boolean; images: number; status: string | null; model: string | null };
+}
+
+export interface HealthDto {
+  status: 'ok' | 'degraded';
+  db: boolean;
+  redis: boolean;
+  version: string;
+  /** "configured" | "pending" | provider description, per integration. */
+  integrations: { payments: string; cod: boolean; shipping: string; email: string; sms: string; whatsapp: string; embeddings: string; storage: string };
+}
+
+export interface PurchaseOrderDetailDto {
+  id: string; number: string; status: PurchaseOrderSummaryDto['status']; reference: string | null; notes: string | null; totalCost: number;
+  orderedAt: string; receivedAt: string | null; supplier: SupplierDto;
+  items: { id: string; variantId: string; sku: string; productName: string; color: string; size: string; quantity: number; receivedQuantity: number; unitCost: number }[];
 }
 
 export interface OtpRequestResponse {

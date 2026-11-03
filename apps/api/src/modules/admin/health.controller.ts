@@ -8,6 +8,7 @@ import { QueueService } from '../../common/queue/queue.service';
 import { MailService } from '../../common/mail/mail.service';
 import { ZodPipe } from '../../common/http/zod.pipe';
 import { Public } from '../auth/auth.decorators';
+import type { HealthDto } from '@vyra/shared';
 import { PaymentsGateway } from '../payments/payments.gateway';
 import { ShippingService } from '../shipping/shipping.service';
 import { EmbeddingService } from '../ai/embedding.service';
@@ -25,12 +26,12 @@ export class HealthController {
 
   /** Liveness + honest integration status ("pending" = credentials not configured). */
   @Get('health')
-  async health() {
+  async health(): Promise<HealthDto> {
     const db = await this.prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
     const redis = await this.queue.ping();
     const s = (ok: boolean) => (ok ? 'configured' : 'pending');
     return {
-      status: db ? 'ok' : 'degraded', db, redis, version: this.env.APP_VERSION,
+      status: db ? ('ok' as const) : ('degraded' as const), db, redis, version: this.env.APP_VERSION,
       integrations: {
         payments: this.payments.provider ? `${this.payments.provider.name}${this.payments.provider.name === 'mock' ? ' (test mode)' : ''}` : 'pending',
         cod: this.env.COD_ENABLED, shipping: this.env.SHIPPING_PROVIDER === 'shiprocket' ? s(this.shipping.shiprocket.configured) : 'manual',

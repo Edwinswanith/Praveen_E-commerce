@@ -17,20 +17,8 @@ export interface PurchaseOrderItemDto {
   unitCost: number;
 }
 
-/** GET /admin/purchase-orders/:id (detail; the list uses PurchaseOrderSummaryDto). */
-export interface PurchaseOrderDetailDto {
-  id: string;
-  number: string;
-  reference: string | null;
-  status: PurchaseOrderSummaryDto['status'];
-  supplier: SupplierDto | null;
-  notes: string | null;
-  totalCost: number;
-  orderedAt: string;
-  createdAt: string;
-  receivedAt: string | null;
-  items: PurchaseOrderItemDto[];
-}
+/** GET /admin/purchase-orders/:id */
+export type { PurchaseOrderDetailDto } from '@vyra/shared';
 
 export interface SalesAnalyticsDto {
   series: { period: string; revenue: number; orders: number; units: number; aov: number }[];
@@ -51,3 +39,6 @@ export type AdminOrderDetail = import('@vyra/shared').OrderDetailDto & {
 
 export interface CancellationReport { total: number; cancelled: number; /** percent, e.g. 12.5 */ rate: number; byReason: { reason: string; count: number; value: number }[] }
 export interface ReturnsReport { requests: number; refunded: number; byReason: { reason: string; status: string; count: number }[] }
+
+/** GET /api/v1/health */
+export type { HealthDto } from '@vyra/shared';
