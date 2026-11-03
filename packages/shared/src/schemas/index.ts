@@ -213,6 +213,8 @@ export const checkoutSchema = z.object({
   couponCode: z.string().trim().toUpperCase().max(30).optional().nullable(),
   /** Client-generated UUID; resubmitting with the same key returns the same order. */
   idempotencyKey: z.string().uuid(),
+  /** Total the shopper saw. If the server total is higher (e.g. a sale just ended) checkout stops with 409 instead of charging more. */
+  expectedTotal: z.coerce.number().nonnegative().optional(),
 }).refine((v) => v.addressId || v.address, { message: 'Delivery address is required', path: ['address'] });
 export type CheckoutInput = z.infer<typeof checkoutSchema>;
 
@@ -262,6 +264,9 @@ export const couponSchema = z.object({
   perUserLimit: z.coerce.number().int().positive().default(1),
   categoryIds: z.array(cuid).default([]),
   isActive: z.boolean().default(true),
+  autoApply: z.boolean().default(false),
+  combinableWithPromotions: z.boolean().default(true),
+  campaignId: cuid.optional().nullable(),
 }).refine((c) => c.type !== 'PERCENTAGE' || c.value <= 90, { message: 'Percentage cannot exceed 90%', path: ['value'] });
 
 export const reviewSchema = z.object({
@@ -305,6 +310,76 @@ export const tryOnSchema = z.object({
   color: z.string().trim().max(40).optional(),
   /** Explicit consent: "I am 18+ and this is my photo". */
   consent: z.literal('true', { message: 'Please confirm you are 18+ and this is your photo' }),
+});
+
+const noPercentClaim = (v: string | null | undefined) => !v || !/\d+\s*%/.test(v);
+const CLAIM_MSG = 'Do not type % figures here; the live "Up to X% off" is computed from real prices';
+const optDate = z.coerce.date().optional().nullable();
+
+export const campaignSchema = z.object({
+  name: trimmed(3, 80),
+  slug: slugSchema,
+  edition: z.string().trim().max(40).optional().nullable(),
+  festival: z.string().trim().max(40).optional().nullable(),
+  description: z.string().trim().max(1000).optional().nullable(),
+  priority: z.coerce.number().int().min(0).max(100).default(0),
+  teaserStartsAt: optDate,
+  earlyAccessStartsAt: optDate,
+  startsAt: z.coerce.date(),
+  endsAt: z.coerce.date(),
+  budget: money.optional().nullable(),
+  bannerTitle: z.string().trim().max(60).optional().nullable().refine(noPercentClaim, CLAIM_MSG),
+  bannerSubtitle: z.string().trim().max(120).optional().nullable().refine(noPercentClaim, CLAIM_MSG),
+  bannerImageUrl: z.string().trim().max(500).optional().nullable(),
+  themeColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+});
+export type CampaignInput = z.infer<typeof campaignSchema>;
+
+export const campaignPricesSchema = z.object({
+  items: z.array(z.object({
+    variantId: cuid,
+    salePrice: money.optional(),
+    percentOff: z.coerce.number().min(1).max(90).optional(),
+    stockCap: z.coerce.number().int().min(1).max(100000).optional().nullable(),
+    perCustomerLimit: z.coerce.number().int().min(1).max(50).optional().nullable(),
+  }).refine((i) => (i.salePrice != null) !== (i.percentOff != null), { message: 'Give either salePrice or percentOff' })).min(1).max(2000),
+});
+
+export const campaignBulkPriceSchema = z.object({
+  categoryIds: z.array(cuid).max(50).default([]),
+  productIds: z.array(cuid).max(500).default([]),
+  /** Percent off the REGULAR price (not MRP). */
+  percentOff: z.coerce.number().min(1).max(90),
+  /** Round sale prices down to end in 9 (₹699, ₹1,299). */
+  roundToNine: z.boolean().default(true),
+  stockCap: z.coerce.number().int().min(1).max(100000).optional().nullable(),
+  perCustomerLimit: z.coerce.number().int().min(1).max(50).optional().nullable(),
+}).refine((b) => b.categoryIds.length || b.productIds.length, { message: 'Pick categories or products', path: ['categoryIds'] });
+
+export const campaignExtendSchema = z.object({ endsAt: z.coerce.date(), note: trimmed(3, 200) });
+
+export const promotionSchema = z.object({
+  name: trimmed(3, 60),
+  campaignId: cuid.optional().nullable(),
+  minQuantity: z.coerce.number().int().min(2).max(10),
+  percentOff: z.coerce.number().min(1).max(50),
+  maxDiscount: money.optional().nullable(),
+  categoryIds: z.array(cuid).max(50).default([]),
+  productIds: z.array(cuid).max(500).default([]),
+  startsAt: optDate,
+  endsAt: optDate,
+  isActive: z.boolean().default(true),
+  usageLimit: z.coerce.number().int().positive().optional().nullable(),
+});
+export type PromotionInput = z.infer<typeof promotionSchema>;
+
+export const remindMeSchema = z.object({
+  phone: indianMobileSchema.optional(),
+  email: z.string().trim().toLowerCase().email().optional(),
+});
+
+export const returnPreviewSchema = z.object({
+  items: z.array(z.object({ orderItemId: cuid, quantity: z.coerce.number().int().positive() })).min(1),
 });
 
 export const codPincodeSchema = z.object({ pincode: pincodeSchema, reason: z.string().trim().max(200).optional() });

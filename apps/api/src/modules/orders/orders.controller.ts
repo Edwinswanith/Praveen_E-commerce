@@ -4,7 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { z } from 'zod';
 import {
-  cancelOrderSchema, checkoutSchema, codConfirmSchema, indianMobileSchema, orderStatusUpdateSchema, paginationSchema, pincodeSchema, returnDecisionSchema, returnRequestSchema,
+  cancelOrderSchema, checkoutSchema, codConfirmSchema, indianMobileSchema, orderStatusUpdateSchema, paginationSchema, pincodeSchema, returnDecisionSchema, returnPreviewSchema, returnRequestSchema,
   shipmentCreateSchema, verifyPaymentSchema, type CheckoutInput,
 } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -127,6 +127,19 @@ export class CustomerOrdersController {
   @HttpCode(200) @Post('orders/:number/pay')
   pay(@CurrentUser() u: AuthUser, @Param('number') number: string) {
     return this.orders.resumePayment(number, u.id);
+  }
+
+  /** What a return would refund, including offers the kept items lose. */
+  @HttpCode(200) @Post('orders/:number/return-preview')
+  async returnPreview(@CurrentUser() u: AuthUser, @Param('number') number: string, @Body(new ZodPipe(returnPreviewSchema)) b: z.infer<typeof returnPreviewSchema>) {
+    const o = await this.prisma.order.findUnique({ where: { number }, include: { items: { select: { id: true, quantity: true, returnedQuantity: true } } } });
+    if (!o || o.userId !== u.id) throw notFound('Order');
+    for (const i of b.items) {
+      const oi = o.items.find((x) => x.id === i.orderItemId);
+      if (!oi) throw notFound('Order item');
+      if (i.quantity > oi.quantity) throw badRequest('Quantity exceeds what was ordered');
+    }
+    return this.orders.returnPreview(o.id, b.items);
   }
 
   @Post('returns')

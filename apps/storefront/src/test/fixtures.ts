@@ -13,6 +13,8 @@ export function orderFixture(overrides: Partial<OrderDetailDto> = {}): OrderDeta
     customerEmail: 'aarav@example.com',
     createdAt: '2026-11-01T10:00:00.000Z',
     previewImages: [],
+    promotionDiscount: 0,
+    savings: { campaign: 0, promotion: 0, coupon: 0, prepaid: 0 },
     items: [
       {
         id: 'oi_1',

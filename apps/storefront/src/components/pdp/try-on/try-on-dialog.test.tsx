@@ -14,7 +14,7 @@ vi.mock('@/lib/try-on', async (importOriginal) => {
 function v(id: string, color: string, size: string, available = 5): VariantDto {
   return {
     id, sku: `SKU-${id}`, color, colorHex: color === 'Maroon' ? '#800000' : '#0f5132', size,
-    mrp: 2999, price: 1999, discountPercent: 33, available, inStock: available > 0, isActive: true, barcode: null,
+    mrp: 2999, price: 1999, basePrice: 1999, campaign: null, discountPercent: 33, available, inStock: available > 0, isActive: true, barcode: null,
   };
 }
 const variants = [v('m-s', 'Maroon', 'S'), v('m-m', 'Maroon', 'M'), v('g-m', 'Green', 'M')];

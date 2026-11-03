@@ -3,7 +3,7 @@ import { Prisma, type OrderStatus } from '@prisma/client';
 import { randomInt } from 'node:crypto';
 import {
   canTransition, CUSTOMER_CANCELLABLE, fromPaise, PRICING_RULES, priceCart, RETURN_WINDOW_DAYS,
-  type CheckoutInput, type CheckoutResponse, type OrderDetailDto,
+  type CheckoutInput, type CheckoutResponse, type OrderDetailDto, type PricingResult, type ReturnPreviewDto,
 } from '@vyra/shared';
 import { ENV, type Env } from '../../config/env';
 import { PrismaService, type Tx } from '../../common/prisma/prisma.service';
@@ -18,6 +18,7 @@ import { CodService } from '../cod/cod.service';
 import { OtpService, maskPhone } from '../otp/otp.service';
 import { MessagingService, WA_TEMPLATES } from '../../common/messaging/messaging.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
 import { PaymentsGateway } from '../payments/payments.gateway';
 import { ShippingService } from '../shipping/shipping.service';
 import { loadExtras, orderDetailInclude, returnInclude, toOrderDetail } from './order.mappers';
@@ -44,6 +45,7 @@ export class OrdersService implements OnModuleInit {
     private readonly cod: CodService,
     private readonly otp: OtpService,
     private readonly messaging: MessagingService,
+    private readonly campaignPricing: CampaignPricingService,
   ) {}
 
   async onModuleInit() {
@@ -156,19 +158,23 @@ export class OrdersService implements OnModuleInit {
       if (reason) throw badRequest(reason);
     }
 
+    // Live prices for THIS shopper at THIS moment (campaign sale prices, early access, bundles).
+    const prices = await this.carts.prices(active, user?.id);
+    const lines = this.carts.pricingLines(active, prices);
+    const promotions = await this.carts.promotions(user?.id);
     const couponCode = input.couponCode ?? cart!.couponCode;
-    let couponRow: { id: string } | null = null;
-    let coupon = null;
-    if (couponCode) {
-      const r = await this.coupons.resolve(couponCode, { userId: user?.id, email });
-      if ('error' in r) throw badRequest(r.error);
-      coupon = r.coupon;
-      couponRow = r.row;
-    }
-    const lines = this.carts.pricingLines(active);
-    const pricing = priceCart({ lines, coupon, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod, prepaid: this.carts.prepaid });
-    if (pricing.couponError) throw badRequest(pricing.couponError);
+    const picked = await this.carts.pickCoupon(lines, promotions, couponCode, { userId: user?.id, email }, { shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod });
+    if (picked.error) throw badRequest(picked.error);
+    const coupon = picked.coupon;
+    const pricing = priceCart({ lines, coupon, promotions, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod, prepaid: this.carts.prepaid });
+    // A non-combinable coupon that lost to a bundle is reported, not silently dropped.
+    if (pricing.couponError && !pricing.offerNote) throw badRequest(pricing.couponError);
+    const couponRow = pricing.couponCode ? picked.row : null;
     if (input.paymentMethod === 'COD' && !pricing.codAvailable) throw badRequest(`Cash on Delivery is available up to ${fromPaise(PRICING_RULES.codMaxOrderValue)} rupees`);
+    if (input.expectedTotal !== undefined && pricing.grandTotal > Math.round(input.expectedTotal * 100)) {
+      throw new AppError('PRICE_CHANGED', `Prices changed since you opened checkout (a sale may have just ended). Your new total is ₹${fromPaise(pricing.grandTotal)}. Please review and place the order again.`, HttpStatus.CONFLICT, { grandTotal: fromPaise(pricing.grandTotal) });
+    }
+    await this.assertCampaignLimits(pricing.lines, { userId: user?.id ?? null, email, phone: String(address.phone) });
 
     const byVariant = new Map(active.map((i) => [i.variantId, i]));
     const isCod = input.paymentMethod === 'COD';
@@ -180,7 +186,7 @@ export class OrdersService implements OnModuleInit {
           data: {
             number, userId: user?.id ?? null, customerName: String(address.fullName), customerEmail: email, customerPhone: String(address.phone),
             status: isCod ? 'CONFIRMED' : 'PENDING_PAYMENT', confirmedAt: isCod ? new Date() : null, paymentMethod: input.paymentMethod,
-            codConfirmation: isCod ? 'PENDING' : 'NOT_REQUIRED', prepaidDiscount: paiseToDec(pricing.prepaidDiscount),
+            codConfirmation: isCod ? 'PENDING' : 'NOT_REQUIRED', prepaidDiscount: paiseToDec(pricing.prepaidDiscount), promotionDiscount: paiseToDec(pricing.promotionDiscount),
             shippingMethod: input.shippingMethod, shippingAddress: address as Prisma.InputJsonValue, idempotencyKey: input.idempotencyKey,
             mrpTotal: paiseToDec(pricing.mrpTotal), subtotal: paiseToDec(pricing.subtotal), couponCode: pricing.couponCode, couponDiscount: paiseToDec(pricing.couponDiscount),
             shippingFee: paiseToDec(pricing.shippingFee), codFee: paiseToDec(pricing.codFee), taxTotal: paiseToDec(pricing.taxTotal), grandTotal: paiseToDec(pricing.grandTotal),
@@ -191,7 +197,7 @@ export class OrdersService implements OnModuleInit {
                 const v = ci.variant;
                 return {
                   variantId: v.id, productId: v.product.id, productName: v.product.name, productSlug: v.product.slug, sku: v.sku, color: v.color, size: v.size,
-                  imageUrl: v.product.images[0]?.thumbUrl ?? null, hsnCode: '6109', quantity: l.quantity, unitMrp: paiseToDec(l.unitMrp), unitPrice: paiseToDec(l.unitPrice),
+                  imageUrl: v.product.images[0]?.thumbUrl ?? null, hsnCode: '6109', quantity: l.quantity, unitMrp: paiseToDec(l.unitMrp), unitPrice: paiseToDec(l.unitPrice), campaignId: l.campaignId ?? null,
                   discount: paiseToDec(l.discountShare), taxRate: new Prisma.Decimal(l.gstRate), taxAmount: paiseToDec(l.taxAmount), lineTotal: paiseToDec(l.taxableValue),
                 };
               }),
@@ -201,6 +207,7 @@ export class OrdersService implements OnModuleInit {
         // HSN codes come from the product (snapshot); fix up in one query.
         await tx.$executeRaw`UPDATE order_items oi SET "hsnCode" = p."hsnCode" FROM products p WHERE p.id = oi."productId" AND oi."orderId" = ${order.id}`;
         await this.inventory.reserveMany(tx, pricing.lines.map((l) => ({ variantId: l.variantId, quantity: l.quantity })), order.id, number);
+        await this.recordOffers(tx, order.id, pricing, couponRow?.id ?? null);
         if (couponRow) {
           if (!(await this.coupons.consume(tx, couponRow.id))) throw badRequest('This coupon has just reached its usage limit');
           await tx.couponUsage.create({ data: { couponId: couponRow.id, userId: user?.id ?? null, email, orderId: order.id, discount: paiseToDec(pricing.couponDiscount) } });
@@ -217,6 +224,8 @@ export class OrdersService implements OnModuleInit {
     }
 
     await this.carts.clearPurchased(cart!.id, pricing.lines.map((l) => l.variantId));
+    const campaignIds = [...new Set(pricing.lines.map((l) => l.campaignId).filter((x): x is string => !!x))];
+    if (campaignIds.length) void this.campaignPricing.enforceBudgets(campaignIds).catch((e) => this.logger.warn(`Budget check: ${(e as Error).message}`));
 
     if (!isCod) {
       try {
@@ -238,6 +247,65 @@ export class OrdersService implements OnModuleInit {
       codOtp = { phoneMasked: maskPhone(String(address.phone)), expiresInSeconds: 0 };
     }
     return { ...(await this.checkoutResponse(orderId)), codOtp };
+  }
+
+  /** Per-customer deal limits ("max 2 per customer") across non-cancelled orders, by account, email or phone. */
+  private async assertCampaignLimits(lines: PricingResult['lines'], who: { userId: string | null; email: string; phone: string }) {
+    const deal = lines.filter((l) => l.campaignId);
+    if (!deal.length) return;
+    const caps = await this.prisma.campaignPrice.findMany({ where: { OR: deal.map((l) => ({ campaignId: l.campaignId!, variantId: l.variantId })), perCustomerLimit: { not: null } }, include: { variant: { include: { product: { select: { name: true } } } } } });
+    for (const c of caps) {
+      const bought = await this.prisma.orderItem.aggregate({
+        _sum: { quantity: true },
+        where: {
+          campaignId: c.campaignId, variantId: c.variantId, order: { status: { not: 'CANCELLED' }, OR: [...(who.userId ? [{ userId: who.userId }] : []), { customerEmail: who.email }, { customerPhone: who.phone }] },
+        },
+      });
+      const want = deal.find((l) => l.variantId === c.variantId)!.quantity;
+      const left = c.perCustomerLimit! - (bought._sum.quantity ?? 0);
+      if (want > left) throw badRequest(left > 0 ? `The sale price on ${c.variant.product.name} is limited to ${c.perCustomerLimit} per customer. You can add ${left} more.` : `You've already bought the maximum ${c.perCustomerLimit} of ${c.variant.product.name} at the sale price.`);
+    }
+  }
+
+  /**
+   * Writes the discount ledger (one row per line per source) and consumes
+   * deal stock caps and promotion uses atomically with the order. A sold-out
+   * deal aborts the whole order, so nobody is charged a price that has run out.
+   */
+  private async recordOffers(tx: Tx, orderId: string, pricing: PricingResult, couponId: string | null) {
+    const items = await tx.orderItem.findMany({ where: { orderId }, select: { id: true, variantId: true } });
+    const itemOf = new Map(items.map((i) => [i.variantId, i.id]));
+    const rows: Prisma.OrderDiscountCreateManyInput[] = [];
+    for (const l of pricing.lines) {
+      const orderItemId = itemOf.get(l.variantId)!;
+      const add = (source: 'CAMPAIGN_PRICE' | 'PROMOTION' | 'COUPON' | 'PREPAID', amount: number, sourceId: string | null) => {
+        if (amount > 0) rows.push({ orderId, orderItemId, source, sourceId, amount: paiseToDec(amount) });
+      };
+      add('CAMPAIGN_PRICE', l.discounts.campaign, l.campaignId ?? null);
+      add('PROMOTION', l.discounts.promotion, pricing.promotion?.id ?? null);
+      add('COUPON', l.discounts.coupon, couponId);
+      add('PREPAID', l.discounts.prepaid, null);
+      if (l.campaignId) {
+        const n = await tx.$executeRaw`UPDATE campaign_prices SET "soldCount" = "soldCount" + ${l.quantity}, "updatedAt" = now()
+          WHERE "campaignId" = ${l.campaignId} AND "variantId" = ${l.variantId} AND ("stockCap" IS NULL OR "soldCount" + ${l.quantity} <= "stockCap")`;
+        if (n !== 1) throw conflict('A sale price in your bag has just sold out. Please review your bag; the regular price now applies.');
+      }
+    }
+    if (rows.length) await tx.orderDiscount.createMany({ data: rows });
+    if (pricing.promotion && pricing.promotionDiscount > 0) {
+      const n = await tx.$executeRaw`UPDATE promotions SET "usedCount" = "usedCount" + 1 WHERE id = ${pricing.promotion.id} AND ("usageLimit" IS NULL OR "usedCount" < "usageLimit")`;
+      if (n !== 1) throw conflict(`“${pricing.promotion.name}” has just ended. Please review your bag.`);
+    }
+  }
+
+  /** Gives back deal stock and promotion uses held by a cancelled order. */
+  private async releaseOffers(tx: Tx, orderId: string) {
+    const items = await tx.orderItem.findMany({ where: { orderId, campaignId: { not: null } }, select: { campaignId: true, variantId: true, quantity: true } });
+    for (const i of items) {
+      await tx.$executeRaw`UPDATE campaign_prices SET "soldCount" = GREATEST("soldCount" - ${i.quantity}, 0), "updatedAt" = now() WHERE "campaignId" = ${i.campaignId} AND "variantId" = ${i.variantId}`;
+    }
+    const promo = await tx.orderDiscount.findFirst({ where: { orderId, source: 'PROMOTION', sourceId: { not: null } }, select: { sourceId: true } });
+    if (promo) await tx.$executeRaw`UPDATE promotions SET "usedCount" = GREATEST("usedCount" - 1, 0) WHERE id = ${promo.sourceId}`;
   }
 
   // ------------------------------------------------------------------ COD confirmation
@@ -404,6 +472,7 @@ export class OrdersService implements OnModuleInit {
       await this.inventory.releaseMany(tx, o.items.map((i) => ({ variantId: i.variantId, quantity: i.quantity })), o.id, `Order cancelled: ${reason}`, actor.id);
       await tx.order.update({ where: { id: o.id }, data: { status: 'CANCELLED', cancelReason: reason, cancelledAt: new Date(), reservationExpiresAt: null } });
       if (o.couponUsage) await tx.$executeRaw`UPDATE coupons SET "usedCount" = GREATEST("usedCount" - 1, 0) WHERE id = ${o.couponUsage.couponId}`;
+      await this.releaseOffers(tx, o.id);
       await tx.payment.updateMany({ where: { orderId: o.id, status: 'CREATED' }, data: { status: 'FAILED', failureReason: 'Order cancelled' } });
       await this.addEvent(tx, o.id, 'CANCELLED', reason, actor);
       const captured = o.payments.filter((p) => p.status === 'CAPTURED' && p.method === 'ONLINE').reduce((s, p) => s + decToPaise(p.amount), 0);
@@ -561,6 +630,76 @@ export class OrdersService implements OnModuleInit {
 
   // ------------------------------------------------------------------ returns
 
+  /**
+   * Refund for returning `items`, honest about offers. If the items kept no
+   * longer qualify for a bundle ("buy 2") or a coupon's minimum order, the
+   * discount those kept items received is deducted from the refund (the
+   * customer keeps paying what the kept items would have cost on their own).
+   *
+   * Computed cumulatively over all non-rejected returns of the order, so a
+   * deduction taken on an earlier return is given back if the rest is returned
+   * later: returning everything always refunds everything paid for the items.
+   */
+  async returnPreview(orderId: string, items: { orderItemId: string; quantity: number }[]): Promise<ReturnPreviewDto> {
+    const o = await this.prisma.order.findUniqueOrThrow({
+      where: { id: orderId },
+      include: { items: true, discounts: true, couponUsage: { include: { coupon: true } }, returnRequests: { include: { items: true } } },
+    });
+    const prior = o.returnRequests.filter((r) => r.type === 'RETURN' && ['REQUESTED', 'APPROVED', 'RECEIVED', 'REFUNDED'].includes(r.status));
+    const priorQty = new Map<string, number>();
+    for (const r of prior) for (const i of r.items) priorQty.set(i.orderItemId, (priorQty.get(i.orderItemId) ?? 0) + i.quantity);
+    const nowQty = new Map(items.map((i) => [i.orderItemId, i.quantity]));
+    const share = (lineTotal: Prisma.Decimal, qty: number, of: number) => Math.floor((decToPaise(lineTotal) * qty) / of);
+
+    let itemsValue = 0, cumulative = 0, priorValue = 0;
+    const kept = new Map<string, number>();
+    for (const oi of o.items) {
+      const before = priorQty.get(oi.id) ?? 0;
+      const now = nowQty.get(oi.id) ?? 0;
+      itemsValue += share(oi.lineTotal, now, oi.quantity);
+      priorValue += share(oi.lineTotal, before, oi.quantity);
+      cumulative += share(oi.lineTotal, before + now, oi.quantity);
+      kept.set(oi.id, Math.max(0, oi.quantity - before - now));
+    }
+    const ledger = (itemId: string, source: string) => o.discounts.filter((d) => d.orderItemId === itemId && d.source === source).reduce((s, d) => s + decToPaise(d.amount), 0);
+    const keptShare = (source: string) => o.items.reduce((s, oi) => s + Math.floor((ledger(oi.id, source) * kept.get(oi.id)!) / oi.quantity), 0);
+    const anyKept = [...kept.values()].some((q) => q > 0);
+    const deductions: ReturnPreviewDto['deductions'] = [];
+
+    // Bundle promotion: kept in-scope units must still meet the minimum quantity.
+    let promoClawed = false;
+    const promoRow = o.discounts.find((d) => d.source === 'PROMOTION');
+    if (anyKept && promoRow) {
+      const promo = promoRow.sourceId ? await this.prisma.promotion.findUnique({ where: { id: promoRow.sourceId } }) : null;
+      const inScopeKept = o.items.filter((oi) => ledger(oi.id, 'PROMOTION') > 0).reduce((s, oi) => s + kept.get(oi.id)!, 0);
+      const minQ = promo?.minQuantity ?? 2;
+      const amount = keptShare('PROMOTION');
+      if (inScopeKept < minQ && amount > 0) {
+        promoClawed = true;
+        deductions.push({ label: `${promo?.name ?? 'Bundle offer'} no longer applies to the ${inScopeKept} item${inScopeKept === 1 ? '' : 's'} you keep (needs ${minQ})`, amount });
+      }
+    }
+    // Coupon minimum order: the kept items' value must still reach it.
+    const coupon = o.couponUsage?.coupon;
+    if (anyKept && coupon?.minOrderValue) {
+      const keptGross = o.items.reduce((s, oi) => s + decToPaise(oi.unitPrice) * kept.get(oi.id)!, 0) - (promoClawed ? 0 : keptShare('PROMOTION'));
+      const amount = keptShare('COUPON');
+      if (keptGross < decToPaise(coupon.minOrderValue) && amount > 0) {
+        deductions.push({ label: `Coupon ${coupon.code} needs a ₹${decToNum(coupon.minOrderValue)} order; the items you keep come to ₹${fromPaise(keptGross)}`, amount });
+      }
+    }
+    const claw = deductions.reduce((s, d) => s + d.amount, 0);
+    const priorRefund = prior.reduce((s, r) => s + decToPaise(r.refundAmount), 0);
+    const givenBack = Math.max(0, priorValue - priorRefund);
+    if (givenBack > 0) deductions.push({ label: 'Offer deduction from your earlier return, given back', amount: -givenBack });
+    const refund = Math.max(0, Math.min(cumulative - claw - priorRefund, itemsValue + givenBack));
+    return {
+      refundAmount: fromPaise(refund), itemsValue: fromPaise(itemsValue),
+      deductions: deductions.map((d) => ({ label: d.label, amount: fromPaise(d.amount) })),
+      note: claw > 0 ? 'Offers are recalculated on the items you keep. Return the rest within the window and this deduction is given back.' : null,
+    };
+  }
+
   async requestReturn(userId: string, input: { orderId: string; type: 'RETURN' | 'EXCHANGE'; reason: string; comments?: string; items: { orderItemId: string; quantity: number; exchangeVariantId?: string }[] }) {
     const order = await this.prisma.order.findFirst({ where: { OR: [{ id: input.orderId }, { number: input.orderId }], userId }, include: { items: { include: { variant: true } }, returnRequests: { include: { items: true } } } });
     if (!order) throw notFound('Order');
@@ -575,7 +714,6 @@ export class OrdersService implements OnModuleInit {
       if (!oi) throw notFound('Order item');
       const left = oi.quantity - oi.returnedQuantity - (pending.get(oi.id) ?? 0);
       if (ri.quantity > left) throw badRequest(`Only ${left} of ${oi.productName} can be returned`);
-      refund += Math.floor((decToPaise(oi.lineTotal) * ri.quantity) / oi.quantity);
       if (input.type === 'EXCHANGE') {
         // Exchanges are a size/colour swap of the same product at the same price: no money moves.
         const target = await this.prisma.productVariant.findUnique({ where: { id: ri.exchangeVariantId! }, include: { inventory: true } });
@@ -586,6 +724,7 @@ export class OrdersService implements OnModuleInit {
         if (avail < ri.quantity) throw outOfStock(`${target.color} / ${target.size} is out of stock. Return for a refund instead.`, { available: avail });
       }
     }
+    if (input.type === 'RETURN') refund = Math.round((await this.returnPreview(order.id, input.items)).refundAmount * 100);
     const r = await this.prisma.returnRequest.create({
       data: {
         orderId: order.id, userId, type: input.type, reason: input.reason, comments: input.comments, refundAmount: paiseToDec(input.type === 'EXCHANGE' ? 0 : refund),

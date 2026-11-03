@@ -1,9 +1,10 @@
 import type { Prisma } from '@prisma/client';
 import { CUSTOMER_CANCELLABLE, RETURN_WINDOW_DAYS, type OrderDetailDto, type OrderSummaryDto, type ReturnRequestDto } from '@vyra/shared';
-import { decToNum } from '../../common/money';
+import { decToNum, decToPaise } from '../../common/money';
 
 export const orderDetailInclude = {
   items: true,
+  discounts: { select: { source: true, amount: true } },
   events: { orderBy: { createdAt: 'asc' } },
   payments: { orderBy: { createdAt: 'asc' } },
   refunds: { orderBy: { createdAt: 'asc' } },
@@ -54,6 +55,13 @@ export function toOrderSummary(o: Prisma.OrderGetPayload<{ include: { items: tru
   };
 }
 
+/** Discount breakdown from the ledger (orders before the ledger fall back to order totals). */
+function savingsOf(o: DetailOrder): OrderDetailDto['savings'] {
+  const by = (src: string) => o.discounts.filter((d) => d.source === src).reduce((s, d) => s + decToPaise(d.amount), 0) / 100;
+  if (!o.discounts.length) return { campaign: 0, promotion: decToNum(o.promotionDiscount), coupon: decToNum(o.couponDiscount), prepaid: decToNum(o.prepaidDiscount) };
+  return { campaign: by('CAMPAIGN_PRICE'), promotion: by('PROMOTION'), coupon: by('COUPON'), prepaid: by('PREPAID') };
+}
+
 export function toOrderDetail(o: DetailOrder, extras: OrderExtras = emptyExtras()): OrderDetailDto {
   const addr = o.shippingAddress as Record<string, string | null>;
   const withinWindow = o.deliveredAt ? Date.now() - o.deliveredAt.getTime() <= RETURN_WINDOW_DAYS * 86400_000 : false;
@@ -71,7 +79,8 @@ export function toOrderDetail(o: DetailOrder, extras: OrderExtras = emptyExtras(
       city: addr.city ?? '', state: addr.state ?? '', pincode: addr.pincode ?? '', type: (addr.type as 'HOME' | 'WORK' | 'OTHER') ?? 'HOME',
     },
     mrpTotal: decToNum(o.mrpTotal), subtotal: decToNum(o.subtotal), couponCode: o.couponCode, couponDiscount: decToNum(o.couponDiscount),
-    prepaidDiscount: decToNum(o.prepaidDiscount), codConfirmation: o.codConfirmation,
+    prepaidDiscount: decToNum(o.prepaidDiscount), promotionDiscount: decToNum(o.promotionDiscount), codConfirmation: o.codConfirmation,
+    savings: savingsOf(o),
     exchangeForOrderNumber: o.exchangeForOrderId ? extras.orderNumbers.get(o.exchangeForOrderId) ?? null : null,
     shippingFee: decToNum(o.shippingFee), codFee: decToNum(o.codFee), taxTotal: decToNum(o.taxTotal), shippingMethod: o.shippingMethod,
     events: o.events.map((e) => ({ status: e.status, note: e.note, createdAt: e.createdAt.toISOString(), actor: e.actorName })),

@@ -49,6 +49,9 @@ import { EventsService } from './modules/events/events.service';
 import { EventsController } from './modules/events/events.controller';
 import { TryOnService } from './modules/tryon/tryon.service';
 import { TryOnController } from './modules/tryon/tryon.controller';
+import { CampaignPricingService } from './modules/campaigns/campaign-pricing.service';
+import { CampaignsService } from './modules/campaigns/campaigns.service';
+import { AdminCampaignsController, AdminPromotionsController, CampaignsController } from './modules/campaigns/campaigns.controller';
 
 /**
  * Modular monolith. Domain code lives in src/modules/<domain>; this module only
@@ -65,6 +68,7 @@ import { TryOnController } from './modules/tryon/tryon.controller';
     InventoryController, BarcodesController, CartController, PublicCouponsController, WishlistController,
     CheckoutController, CustomerOrdersController, AdminOrdersController, SearchController, AdminAiController,
     AnalyticsController, AdminCouponsController, AdminCustomersController, AdminCodController, EventsController, TryOnController,
+    CampaignsController, AdminCampaignsController, AdminPromotionsController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
@@ -72,6 +76,7 @@ import { TryOnController } from './modules/tryon/tryon.controller';
     TokenService, AuthService, CategoriesService, ProductsService, ProductImportService, BarcodesService, InventoryService,
     MediaService, EmbeddingService, CouponsService, CartService, PaymentsGateway, ShippingService, OrdersService, InvoiceService,
     SearchService, AnalyticsService, MessagingService, OtpService, CodService, ImageGenService, EventsService, TryOnService,
+    CampaignPricingService, CampaignsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: EnvelopeInterceptor },

@@ -2,7 +2,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 
 export type ErrorCode =
   | 'VALIDATION_FAILED' | 'UNAUTHORIZED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'OUT_OF_STOCK'
-  | 'RATE_LIMITED' | 'PAYMENT_FAILED' | 'BAD_REQUEST' | 'INTERNAL' | 'NOT_CONFIGURED';
+  | 'RATE_LIMITED' | 'PAYMENT_FAILED' | 'BAD_REQUEST' | 'INTERNAL' | 'NOT_CONFIGURED' | 'PRICE_CHANGED';
 
 /** Domain error with a stable machine-readable code. */
 export class AppError extends HttpException {

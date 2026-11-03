@@ -12,6 +12,7 @@ import { decToNum, decToNumOrNull, paiseToDec } from '../../common/money';
 import { BarcodesService } from '../barcodes/barcodes.service';
 import { CategoriesService } from '../categories/categories.service';
 import { EmbeddingService } from '../ai/embedding.service';
+import { CampaignPricingService } from '../campaigns/campaign-pricing.service';
 import { cardInclude, sizeOrder, toProductCard, toVariantDto } from './product.mappers';
 import { csv, productOrder, productWhere, type ProductFilter } from './product-query';
 
@@ -26,6 +27,7 @@ const detailInclude = {
 } satisfies Prisma.ProductInclude;
 
 type DetailProduct = Prisma.ProductGetPayload<{ include: typeof detailInclude }>;
+type CardProductRow = Parameters<typeof toProductCard>[0];
 
 @Injectable()
 export class ProductsService {
@@ -34,7 +36,14 @@ export class ProductsService {
     private readonly categories: CategoriesService,
     private readonly barcodes: BarcodesService,
     private readonly embeddings: EmbeddingService,
+    private readonly campaignPricing: CampaignPricingService,
   ) {}
+
+  /** Cards with their live campaign badge. */
+  private async toCards(rows: CardProductRow[], scores?: Map<string, number>): Promise<ProductCardDto[]> {
+    const badges = await this.campaignPricing.badges(rows.map((r) => r.id));
+    return rows.map((p) => toProductCard(p, scores?.get(p.id), badges.get(p.id) ?? null));
+  }
 
   // ------------------------------------------------------------ public reads
 
@@ -42,7 +51,7 @@ export class ProductsService {
     if (!ids.length) return [];
     const rows = await this.prisma.product.findMany({ where: { id: { in: ids }, status: 'ACTIVE', deletedAt: null }, include: cardInclude });
     const byId = new Map(rows.map((r) => [r.id, r]));
-    return ids.map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p).map((p) => toProductCard(p, scores?.get(p.id)));
+    return this.toCards(ids.map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p), scores);
   }
 
   async filterFromQuery(q: ProductListQuery): Promise<ProductFilter> {
@@ -112,8 +121,8 @@ export class ProductsService {
       this.prisma.product.findMany({ where: { ...base, maxDiscount: { gte: 30 } }, include: cardInclude, orderBy: { maxDiscount: 'desc' }, take }),
       this.categories.tree(),
     ]);
-    const c = (xs: typeof trending) => xs.map((p) => toProductCard(p));
-    return { trending: c(trending), newArrivals: c(newArrivals), bestSellers: c(bestSellers), featured: c(featured), categories, deals: await this.deals() };
+    const c = (xs: typeof trending) => this.toCards(xs);
+    return { trending: await c(trending), newArrivals: await c(newArrivals), bestSellers: await c(bestSellers), featured: await c(featured), categories, deals: await this.deals() };
   }
 
   /**
@@ -153,8 +162,12 @@ export class ProductsService {
   }
 
   private async toDetail(p: DetailProduct): Promise<ProductDetailDto> {
-    const variants = p.variants.filter((v) => v.isActive).map(toVariantDto);
-    const card = toProductCard({ ...p, category: { slug: p.category.slug }, images: p.images.slice(0, 2), variants: p.variants.filter((v) => v.isActive) });
+    // Public price (product pages are cached for everyone; early-access prices show in the bag).
+    const active = p.variants.filter((v) => v.isActive);
+    const prices = await this.campaignPricing.resolve(active);
+    const variants = active.map((v) => toVariantDto(v, prices.get(v.id)));
+    const campaign = variants.find((v) => v.campaign && v.inStock)?.campaign ?? variants.find((v) => v.campaign)?.campaign ?? null;
+    const card = toProductCard({ ...p, category: { slug: p.category.slug }, images: p.images.slice(0, 2), variants: active }, undefined, campaign);
     const { imageUrl: _i, hoverImageUrl: _h, ...rest } = card;
     return {
       ...rest,
@@ -203,7 +216,7 @@ export class ProductsService {
       where: { categoryId: { in: ids.filter((i) => i !== p.categoryId).length ? ids.filter((i) => i !== p.categoryId) : ids }, status: 'ACTIVE', deletedAt: null, id: { not: p.id } },
       include: cardInclude, orderBy: [{ soldCount: 'desc' }, { createdAt: 'desc' }], take: limit,
     });
-    return rows.map((r) => toProductCard(r));
+    return this.toCards(rows);
   }
 
   // ------------------------------------------------------------ admin
@@ -273,14 +286,7 @@ export class ProductsService {
 
   /** Keeps listing read-model fields in sync with active variants. */
   async refreshDenormalised(tx: Tx, productId: string) {
-    const vs = await tx.productVariant.findMany({ where: { productId, isActive: true } });
-    if (!vs.length) {
-      await tx.product.update({ where: { id: productId }, data: { minPrice: 0, minMrp: 0, maxDiscount: 0 } });
-      return;
-    }
-    const min = vs.reduce((a, b) => (toPaise(b.price.toString()) < toPaise(a.price.toString()) ? b : a));
-    const maxDiscount = Math.max(...vs.map((v) => discountPercent(decToNum(v.mrp), decToNum(v.price))));
-    await tx.product.update({ where: { id: productId }, data: { minPrice: min.price, minMrp: min.mrp, maxDiscount } });
+    await this.campaignPricing.refreshProducts([productId], tx);
   }
 
   private variantData(v: VariantInput) {
@@ -337,7 +343,7 @@ export class ProductsService {
     await this.barcodes.ensureForVariants(tx, ids);
   }
 
-  async update(id: string, input: z.infer<typeof productUpdateSchema>) {
+  async update(id: string, input: z.infer<typeof productUpdateSchema>, actorId?: string) {
     const existing = await this.prisma.product.findFirst({ where: { id, deletedAt: null }, include: { variants: true, category: true } });
     if (!existing) throw notFound('Product');
     if (input.variants) this.assertUniqueCombos(input.variants);
@@ -365,6 +371,10 @@ export class ProductsService {
             keep.add(match.id);
             // Colour/size of an existing variant are immutable: they're baked into SKU + printed labels.
             const { color: _c, size: _s, sizeOrder: _o, ...mutable } = this.variantData(v);
+            if (!match.price.equals(mutable.price) || !match.mrp.equals(mutable.mrp)) {
+              // Price history backs "was" prices and lets audits prove no pre-sale price hikes.
+              await tx.priceHistory.create({ data: { variantId: match.id, price: mutable.price, mrp: mutable.mrp, changedById: actorId ?? null } });
+            }
             await tx.productVariant.update({ where: { id: match.id }, data: mutable });
           } else fresh.push(v);
         }

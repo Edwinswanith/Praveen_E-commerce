@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { discountPercent, type ProductCardDto, type VariantDto } from '@vyra/shared';
+import { discountPercent, fromPaise, type CampaignBadgeDto, type ProductCardDto, type ResolvedPrice, type VariantDto } from '@vyra/shared';
 import { decToNum } from '../../common/money';
 
 export const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', '5XL', 'FREE', 'OS'];
@@ -23,7 +23,7 @@ export type CardProduct = Prisma.ProductGetPayload<{ include: typeof cardInclude
 
 const NEW_DAYS = 30;
 
-export function toProductCard(p: CardProduct, score?: number): ProductCardDto {
+export function toProductCard(p: CardProduct, score?: number, campaign: CampaignBadgeDto | null = null): ProductCardDto {
   const colors = new Map<string, string | null>();
   const sizes = new Map<string, number>();
   let inStock = false;
@@ -45,17 +45,19 @@ export function toProductCard(p: CardProduct, score?: number): ProductCardDto {
     minPrice, minMrp, discountPercent: discountPercent(minMrp, minPrice),
     colors: [...colors].map(([name, hex]) => ({ name, hex })),
     sizes: [...sizes].sort((a, b) => a[1] - b[1]).map(([s]) => s),
-    inStock, rating: p.ratingAvg ? Number(p.ratingAvg) : null, reviewCount: p.ratingCount, badges,
+    inStock, rating: p.ratingAvg ? Number(p.ratingAvg) : null, reviewCount: p.ratingCount, badges, campaign,
     ...(score !== undefined ? { score: Math.round(score * 1000) / 1000 } : {}),
   };
 }
 
-export function toVariantDto(v: Prisma.ProductVariantGetPayload<{ include: { inventory: true; barcodes: true } }>): VariantDto {
+/** `resolved` = live campaign price for this shopper; without it the regular price is shown. */
+export function toVariantDto(v: Prisma.ProductVariantGetPayload<{ include: { inventory: true; barcodes: true } }>, resolved?: ResolvedPrice): VariantDto {
   const available = v.inventory ? Math.max(0, v.inventory.onHand - v.inventory.reserved) : 0;
   const mrp = decToNum(v.mrp);
-  const price = decToNum(v.price);
+  const price = resolved ? fromPaise(resolved.price) : decToNum(v.price);
   return {
     id: v.id, sku: v.sku, color: v.color, colorHex: v.colorHex, size: v.size, mrp, price,
+    basePrice: resolved ? fromPaise(resolved.basePrice) : decToNum(v.price), campaign: resolved?.campaign ?? null,
     discountPercent: discountPercent(mrp, price), available, inStock: available > 0 && v.isActive, isActive: v.isActive,
     barcode: v.barcodes.find((b) => b.isPrimary)?.value ?? v.barcodes[0]?.value ?? null,
   };

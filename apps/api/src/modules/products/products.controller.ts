@@ -191,7 +191,7 @@ export class AdminProductsController {
   @RequirePermissions('catalog:write') @Patch(':id')
   async update(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(productUpdateSchema)) body: z.infer<typeof productUpdateSchema>) {
     if (body.status && !u.permissions.includes('catalog:publish')) delete body.status;
-    const p = await this.products.update(id, body);
+    const p = await this.products.update(id, body, u.id);
     await this.audit.log({ actorId: u.id, action: 'product.update', entity: 'Product', entityId: id, after: body });
     return p;
   }

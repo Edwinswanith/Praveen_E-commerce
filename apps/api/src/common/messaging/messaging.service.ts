@@ -18,6 +18,8 @@ export const WA_TEMPLATES = {
   orderShipped: 'vyra_order_shipped',         // {{1}} order no {{2}} courier {{3}} tracking url
   orderDelivered: 'vyra_order_delivered',     // {{1}} order no
   cartReminder: 'vyra_cart_reminder',         // {{1}} name {{2}} item name {{3}} cart url
+  saleLive: 'vyra_sale_live',                 // {{1}} sale name {{2}} "is live" / "early access is open" {{3}} sale url
+  saleEnding: 'vyra_sale_ending',             // {{1}} sale name {{2}} ends at (IST) {{3}} sale url
 } as const;
 
 @Injectable()

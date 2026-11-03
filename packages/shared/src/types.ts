@@ -71,7 +71,13 @@ export interface VariantDto {
   inStock: boolean;
   isActive: boolean;
   barcode: string | null;
+  /** Regular price without campaigns (price < basePrice while a sale applies). */
+  basePrice: number;
+  campaign: CampaignBadgeDto | null;
 }
+
+/** Which live campaign priced this item, for badges and countdowns. */
+export interface CampaignBadgeDto { id: string; name: string; slug: string; endsAt: string }
 
 export interface ProductCardDto {
   id: string;
@@ -91,6 +97,8 @@ export interface ProductCardDto {
   rating: number | null;
   reviewCount: number;
   badges: string[];
+  /** Live campaign pricing this card's lowest price, if any. */
+  campaign: CampaignBadgeDto | null;
   /** Present on semantic/visual search results: 0..1 similarity. */
   score?: number;
 }
@@ -189,6 +197,13 @@ export interface CartTotalsDto {
   subtotal: number;
   productDiscount: number;
   couponDiscount: number;
+  /** Bundle promotion ("Buy 2, extra 10% off") applied, if any. */
+  promotionDiscount: number;
+  promotionName: string | null;
+  /** Part of the product discount that comes from live campaign prices. */
+  campaignSavings: number;
+  /** Explains which offer won when offers can't combine. */
+  offerNote: string | null;
   /** Discount for paying online (0 for COD / quotes without a payment method). */
   prepaidDiscount: number;
   /** What the prepaid discount would be if paying online (for the "save ₹x by paying online" nudge). */
@@ -209,6 +224,8 @@ export interface CartDto {
   savedItems: CartItemDto[];
   couponCode: string | null;
   couponError: string | null;
+  /** The coupon was picked automatically (no code entered). */
+  couponAutoApplied: boolean;
   totals: CartTotalsDto;
   itemCount: number;
 }
@@ -297,6 +314,9 @@ export interface OrderDetailDto extends OrderSummaryDto {
   couponCode: string | null;
   couponDiscount: number;
   prepaidDiscount: number;
+  promotionDiscount: number;
+  /** Discount breakdown from the order's discount ledger. */
+  savings: { campaign: number; promotion: number; coupon: number; prepaid: number };
   shippingFee: number;
   codFee: number;
   taxTotal: number;
@@ -419,6 +439,7 @@ export interface CouponDto {
   id: string; code: string; description: string | null; type: 'PERCENTAGE' | 'FIXED'; value: number;
   maxDiscount: number | null; minOrderValue: number | null; startsAt: string | null; expiresAt: string | null;
   usageLimit: number | null; perUserLimit: number; usedCount: number; categoryIds: string[]; isActive: boolean;
+  autoApply: boolean; combinableWithPromotions: boolean; campaignId: string | null;
 }
 
 export interface EmbeddingStatusDto {
@@ -458,6 +479,73 @@ export interface PurchaseOrderDetailDto {
   id: string; number: string; status: PurchaseOrderSummaryDto['status']; reference: string | null; notes: string | null; totalCost: number;
   orderedAt: string; receivedAt: string | null; supplier: SupplierDto;
   items: { id: string; variantId: string; sku: string; productName: string; color: string; size: string; quantity: number; receivedQuantity: number; unitCost: number }[];
+}
+
+export interface CampaignPublicDto {
+  id: string;
+  slug: string;
+  name: string;
+  edition: string | null;
+  festival: string | null;
+  description: string | null;
+  phase: import('./campaigns').CampaignPhase;
+  teaserStartsAt: string | null;
+  earlyAccessStartsAt: string | null;
+  startsAt: string;
+  endsAt: string;
+  /** The end was moved later after publishing (always disclosed). */
+  extended: boolean;
+  originalEndsAt: string | null;
+  /** Next phase change, the only valid countdown target. */
+  countdownTo: string | null;
+  banner: { title: string | null; subtitle: string | null; imageUrl: string | null; themeColor: string | null };
+  /** Computed from in-stock campaign prices (rounded down). null = no % claim. */
+  claim: { upToPercent: number | null; productCount: number };
+  promotions: { id: string; name: string; minQuantity: number; percentOff: number }[];
+  /** This viewer can shop early access now. */
+  hasEarlyAccess: boolean;
+  subscribed: boolean;
+}
+
+export interface CampaignAdminDto extends CampaignPublicDto {
+  status: import('./campaigns').CampaignStatus;
+  priority: number;
+  budget: number | null;
+  budgetUsed: number;
+  priceCount: number;
+  subscriberCount: number;
+  publishedAt: string | null;
+  createdAt: string;
+}
+
+export interface CampaignPriceRowDto {
+  variantId: string; productId: string; productName: string; sku: string; color: string; size: string; imageUrl: string | null;
+  mrp: number; regularPrice: number; costPrice: number | null; salePrice: number; percentOffRegular: number; percentOffMrp: number;
+  stockCap: number | null; soldCount: number; perCustomerLimit: number | null; available: number;
+  warnings: string[];
+}
+
+export interface CampaignChecklistDto { ready: boolean; problems: { level: 'error' | 'warning'; message: string }[] }
+
+export interface CampaignReportDto {
+  campaignId: string; phase: import('./campaigns').CampaignPhase;
+  orders: number; units: number; revenue: number; aov: number; cancelledOrders: number; returnedUnits: number;
+  discount: { campaign: number; promotion: number; coupon: number; prepaid: number; total: number };
+  budget: number | null; budgetUsedPercent: number | null;
+  subscribers: number;
+  topProducts: { productId: string; name: string; units: number; revenue: number }[];
+  sellThrough: { variantId: string; sku: string; productName: string; soldCount: number; stockCap: number | null }[];
+  daily: { date: string; orders: number; revenue: number; discount: number }[];
+}
+
+export interface ReturnPreviewDto {
+  /** What the customer gets back. */
+  refundAmount: number;
+  /** Net paid for the returned items. */
+  itemsValue: number;
+  /** Offers the kept items no longer qualify for. */
+  deductions: { label: string; amount: number }[];
+  note: string | null;
 }
 
 export interface TryOnResponse {
