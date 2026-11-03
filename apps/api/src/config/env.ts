@@ -52,6 +52,8 @@ const envSchema = z.object({
   SHIPROCKET_PASSWORD: z.string().optional(),
   SHIPROCKET_PICKUP_LOCATION: z.string().default('Primary'),
   SHIPROCKET_PICKUP_PINCODE: z.string().optional(),
+  /** Token configured in the Shiprocket panel; sent back in the x-api-key header of tracking webhooks. */
+  SHIPROCKET_WEBHOOK_TOKEN: z.string().min(16).optional(),
 
   EMBEDDING_PROVIDER: z.enum(['gemini', 'local']).default('local'),
   GEMINI_API_KEY: z.string().optional(),

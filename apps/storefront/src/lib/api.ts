@@ -37,7 +37,8 @@ export interface RequestOptions {
   skipRefresh?: boolean;
 }
 
-export const API_PREFIX = '/api/v1';
+export { API_PREFIX } from '@vyra/shared';
+import { API_PREFIX } from '@vyra/shared';
 
 const NO_REFRESH_PATHS = ['/auth/refresh', '/auth/login', '/auth/register', '/auth/logout', '/auth/otp'];
 

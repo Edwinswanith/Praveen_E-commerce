@@ -1,7 +1,7 @@
 /** Server-only helper (uses API_URL, which is not exposed to the browser). */
 import type { PageMeta } from '@vyra/shared';
 
-const API_URL = (process.env.API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+import { API_PREFIX, resolveApiUrl } from '@vyra/shared';
 
 export type ServerResult<T> =
   | { ok: true; data: T; meta?: PageMeta }
@@ -24,7 +24,8 @@ export async function serverFetch<T>(
   for (const [k, v] of Object.entries(init.query ?? {}))
     if (v !== undefined && v !== '') params.set(k, String(v));
   const qs = params.toString();
-  const url = `${API_URL}/api/v1${path}${qs ? `${path.includes('?') ? '&' : '?'}${qs}` : ''}`;
+  // Configuration errors (missing API_URL in production) throw loudly; only network/API errors become { ok: false }.
+  const url = `${resolveApiUrl(process.env)}${API_PREFIX}${path}${qs ? `${path.includes('?') ? '&' : '?'}${qs}` : ''}`;
   try {
     const res = await fetch(url, {
       headers: { Accept: 'application/json' },

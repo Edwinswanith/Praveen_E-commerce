@@ -466,6 +466,14 @@ export interface AdminProductDetailDto extends Omit<ProductDetailDto, 'variants'
   embedding: { text: boolean; images: number; status: string | null; model: string | null };
 }
 
+/** Public liveness/readiness (GET /health): no versions or configuration. */
+export interface PublicHealthDto {
+  status: 'ok' | 'degraded';
+  db: boolean;
+  redis: boolean;
+}
+
+/** Staff-only system status (GET /admin/system/health). */
 export interface HealthDto {
   status: 'ok' | 'degraded';
   db: boolean;
@@ -571,6 +579,16 @@ export interface FunnelDto {
   products: { productId: string; name: string; views: number; addToCart: number; viewToCartRate: number; tryOns: number }[];
   tryOn: { total: number; sessions: number; sessionsThatOrdered: number; conversionRate: number; dailyLimit: number; usedToday: number };
   daily: { date: string; sessions: number; orders: number }[];
+}
+
+/** POST /campaigns/:slug/remind-me */
+export interface RemindMeResponse {
+  subscribed: boolean;
+  earlyAccess: boolean;
+  /** Guest flow step 1: a code was sent; resend with `code`. */
+  otp: OtpRequestResponse | null;
+  /** Channels that will be used ("whatsapp" for a verified phone, "email" for a signed-in account email). */
+  channels: ('whatsapp' | 'email')[];
 }
 
 export interface OtpRequestResponse {

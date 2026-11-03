@@ -297,16 +297,39 @@ describe('Festival campaigns, offers and the discount ledger (integration)', () 
     await admin.post(`/api/v1/admin/campaigns/${c.id}/extend`).set(H).send({ endsAt: new Date(Date.now() + 24 * HOUR), note: 'Try to reopen' }).expect(400);
   });
 
-  it('sends opted-in reminders once per phase', async () => {
+  it('sends opted-in reminders once per phase, only to phones their owner verified', async () => {
     const c = await campaign();
     const p = await newProduct();
     await admin.put(`/api/v1/admin/campaigns/${c.id}/prices`).set(H).send({ items: [{ variantId: p.variants[0]!.id, salePrice: 699 }] }).expect(200);
     await admin.post(`/api/v1/admin/campaigns/${c.id}/publish`).set(H).expect(200);
-    await request(app.getHttpServer()).post(`/api/v1/campaigns/${c.slug}/remind-me`).set(H).send({ phone: '9123400099' }).expect(200);
     const outbox = app.get(MessagingService).outbox;
-    const sent = () => outbox.filter((m) => m.to === '9123400099' && m.template === 'vyra_sale_live').length;
+    const guest = request(app.getHttpServer());
+    // Step 1: a guest phone gets a code; nothing is subscribed yet.
+    const step1 = (await guest.post(`/api/v1/campaigns/${c.slug}/remind-me`).set(H).send({ phone: '9123400099' }).expect(200)).body.data;
+    expect(step1).toMatchObject({ subscribed: false, otp: { phoneMasked: expect.any(String) } });
+    expect(await prisma.campaignSubscription.count({ where: { campaignId: c.id } })).toBe(0);
+    const code = [...outbox].reverse().find((m) => m.to === '9123400099' && m.template === 'otp')!.params[0]!;
+    // A wrong code subscribes nothing.
+    await guest.post(`/api/v1/campaigns/${c.slug}/remind-me`).set(H).send({ phone: '9123400099', code: code === '000000' ? '111111' : '000000' }).expect(400);
+    expect(await prisma.campaignSubscription.count({ where: { campaignId: c.id } })).toBe(0);
+    // Step 2: the right code subscribes the verified number.
+    const step2 = (await guest.post(`/api/v1/campaigns/${c.slug}/remind-me`).set(H).send({ phone: '9123400099', code }).expect(200)).body.data;
+    expect(step2).toMatchObject({ subscribed: true, channels: ['whatsapp'] });
+    expect((await prisma.campaignSubscription.findFirstOrThrow({ where: { campaignId: c.id, phone: '9123400099' } })).phoneVerifiedAt).not.toBeNull();
+    // Signed-in customer: a phone in the body is ignored (only the account's own verified phone counts).
+    const member = await registerCustomer(app, 'remind@test.local');
+    const r = (await member.post(`/api/v1/campaigns/${c.slug}/remind-me`).set(H).send({ phone: '9123400077' }).expect(200)).body.data;
+    expect(r).toMatchObject({ subscribed: true, channels: ['email'] });
+    expect(await prisma.campaignSubscription.count({ where: { campaignId: c.id, phone: '9123400077' } })).toBe(0);
+    // A legacy unverified phone row never gets WhatsApp.
+    await prisma.campaignSubscription.create({ data: { campaignId: c.id, phone: '9123400088' } });
+    const sent = (to: string) => outbox.filter((m) => m.to === to && m.template === 'vyra_sale_live').length;
     await app.get(CampaignsService).sweep();
     await app.get(CampaignsService).sweep();
-    expect(sent()).toBe(1);
+    expect(sent('9123400099')).toBe(1);
+    expect(sent('9123400088')).toBe(0);
+    // Consent can be withdrawn.
+    expect((await member.delete(`/api/v1/campaigns/${c.slug}/remind-me`).set(H).expect(200)).body.data.removed).toBe(1);
+    await guest.delete(`/api/v1/campaigns/${c.slug}/remind-me`).set(H).expect(401);
   });
 });

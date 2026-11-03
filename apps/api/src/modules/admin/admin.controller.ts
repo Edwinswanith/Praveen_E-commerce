@@ -67,7 +67,7 @@ export class AdminCouponsController {
 @RequirePermissions('customers:read')
 @Controller('admin/customers')
 export class AdminCustomersController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
 
   @Get()
   async list(@Query(new ZodPipe(paginationSchema)) q: { page: number; pageSize: number; q?: string }) {
@@ -107,9 +107,13 @@ export class AdminCustomersController {
     };
   }
 
-  @HttpCode(200) @Post(':id/notes')
-  async notes(@Param('id') id: string, @Body(new ZodPipe(z.object({ notes: z.string().max(2000) }))) b: { notes: string }) {
+  /** Internal support notes. A write, so it needs customers:write (the controller default is read-only). */
+  @RequirePermissions('customers:write') @HttpCode(200) @Post(':id/notes')
+  async notes(@CurrentUser() actor: AuthUser, @Param('id') id: string, @Body(new ZodPipe(z.object({ notes: z.string().trim().max(2000) }))) b: { notes: string }) {
+    const customer = await this.prisma.user.findFirst({ where: { id, deletedAt: null, role: { name: 'CUSTOMER' } }, include: { customerProfile: true } });
+    if (!customer) throw notFound('Customer');
     await this.prisma.customerProfile.upsert({ where: { userId: id }, create: { userId: id, notes: b.notes }, update: { notes: b.notes } });
+    await this.audit.log({ actorId: actor.id, action: 'customer.notes', entity: 'User', entityId: id, before: { notes: customer.customerProfile?.notes ?? null }, after: { notes: b.notes } });
     return { ok: true };
   }
 }

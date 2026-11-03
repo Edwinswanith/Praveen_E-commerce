@@ -40,7 +40,7 @@ export type AdminOrderDetail = import('@vyra/shared').OrderDetailDto & {
 export interface CancellationReport { total: number; cancelled: number; /** percent, e.g. 12.5 */ rate: number; byReason: { reason: string; count: number; value: number }[] }
 export interface ReturnsReport { requests: number; refunded: number; byReason: { reason: string; status: string; count: number }[] }
 
-/** GET /api/v1/health */
+/** GET /api/v1/admin/system/health (staff only; the public /health has no configuration details) */
 export type { HealthDto } from '@vyra/shared';
 
 // ---------- Campaigns ----------

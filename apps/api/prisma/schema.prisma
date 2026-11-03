@@ -164,6 +164,7 @@ enum EmbeddingJobStatus {
 enum OtpPurpose {
   LOGIN
   COD_CONFIRM
+  SALE_REMINDER
 }
 
 enum CodConfirmation {
@@ -516,6 +517,10 @@ model CampaignSubscription {
   userId     String?
   phone      String?
   email      String?
+  /// Set only when the phone owner proved it (OTP, or the account's verified phone). WhatsApp goes only to verified phones.
+  phoneVerifiedAt DateTime? @db.Timestamptz(3)
+  /// When the customer opted in to reminders for this sale.
+  consentAt  DateTime @default(now()) @db.Timestamptz(3)
   /// Notifications already sent: "starting_soon", "live", "ending_soon".
   notified   String[] @default([])
   createdAt  DateTime @default(now()) @db.Timestamptz(3)

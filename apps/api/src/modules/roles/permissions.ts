@@ -14,6 +14,7 @@ export const PERMISSIONS = {
   'orders:write': 'Update order status, fulfil, cancel, process returns',
   'orders:refund': 'Issue refunds',
   'customers:read': 'View customer profiles and history',
+  'customers:write': 'Write internal support notes on customer profiles',
   'promotions:read': 'View coupons',
   'promotions:write': 'Create and edit coupons',
   'analytics:read': 'View revenue dashboards and reports',
@@ -28,7 +29,8 @@ export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
   SUPER_ADMIN: ALL,
   ADMIN: ALL,
   INVENTORY_MANAGER: ['catalog:read', 'catalog:write', 'inventory:read', 'inventory:write', 'orders:read'],
-  ORDER_MANAGER: ['catalog:read', 'inventory:read', 'orders:read', 'orders:write', 'customers:read', 'promotions:read'],
+  // Order managers handle COD calls and RTO follow-ups, so they keep the ability to note customers.
+  ORDER_MANAGER: ['catalog:read', 'inventory:read', 'orders:read', 'orders:write', 'customers:read', 'customers:write', 'promotions:read'],
   CUSTOMER: [],
 };
 

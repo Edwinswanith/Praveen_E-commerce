@@ -40,7 +40,7 @@ export function AiPhotoDialog({ productId, images, colours, open, onOpenChange, 
     setBusy(true);
     try {
       const body: Partial<AiPhotoInput> = { style, count, ...(source ? { sourceImageId: source } : {}), ...(colour ? { color: colour } : {}), ...(notes.trim() ? { notes: notes.trim() } : {}) };
-      const created = await api.post<ProductImageDto[]>(`/admin/products/${productId}/images/generate`, body);
+      const created = await api.post<ProductImageDto[]>(`/products/${productId}/images/generate`, body);
       toast.success(`${created.length} AI photo${created.length > 1 ? 's' : ''} added. Review before publishing.`);
       onDone();
       onOpenChange(false);

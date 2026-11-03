@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
+import { API_PREFIX, resolveApiUrl } from '@vyra/shared';
 
-const apiUrl = (process.env.API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+/** Fails the build/start in production when API_URL is missing or invalid. */
+const apiUrl = resolveApiUrl(process.env);
 
 const nextConfig: NextConfig = {
   output: 'standalone',
@@ -10,7 +12,7 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   async rewrites() {
     return [
-      { source: '/api/v1/:path*', destination: `${apiUrl}/api/v1/:path*` },
+      { source: `${API_PREFIX}/:path*`, destination: `${apiUrl}${API_PREFIX}/:path*` },
       { source: '/media/:path*', destination: `${apiUrl}/media/:path*` },
     ];
   },

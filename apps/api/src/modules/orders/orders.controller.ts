@@ -18,6 +18,25 @@ import { ShippingService } from '../shipping/shipping.service';
 import { InvoiceService } from './invoice.service';
 import { loadExtras, toOrderSummary, toReturnDto } from './order.mappers';
 import { OrdersService } from './orders.service';
+import { AttemptLimiter } from '../../common/ratelimit/attempt-limiter.service';
+import { ShiprocketWebhookService, type ShiprocketTrackingPayload } from '../shipping/shiprocket-webhook.service';
+import type { OrderDetailDto } from '@vyra/shared';
+
+/** Failed guest tracking attempts allowed per contact / order number per hour. */
+const TRACK_MAX_FAILURES = 5;
+
+const maskTail = (v: string | null | undefined, keep: number) => (v ? `${'•'.repeat(Math.max(0, v.length - keep))}${keep > 0 ? v.slice(-keep) : ''}` : v ?? null);
+const maskEmail = (e: string) => e.replace(/^(.)(.*)(@.*)$/, (_m, a: string, b: string, d: string) => `${a}${'•'.repeat(Math.min(b.length, 6))}${d}`);
+/** Guest tracking needs status and items, not the full street address or contact details. */
+function maskForGuest(o: OrderDetailDto): OrderDetailDto {
+  return {
+    ...o,
+    customerEmail: maskEmail(o.customerEmail),
+    shippingAddress: { ...o.shippingAddress, phone: maskTail(o.shippingAddress.phone, 2) ?? '', line1: maskTail(o.shippingAddress.line1, 0) ?? '', line2: null, landmark: null },
+    payments: o.payments.map((p) => ({ ...p, providerOrderId: null, providerPaymentId: null })),
+    refunds: o.refunds.map((r) => ({ ...r, providerRefundId: null })),
+  };
+}
 import { EventsService } from '../events/events.service';
 
 const actorOf = (u: AuthUser) => ({ id: u.id, name: u.name });
@@ -27,7 +46,7 @@ const actorOf = (u: AuthUser) => ({ id: u.id, name: u.name });
 @OptionalAuth()
 @Controller()
 export class CheckoutController {
-  constructor(private readonly orders: OrdersService, private readonly carts: CartService, private readonly payments: PaymentsGateway, private readonly shipping: ShippingService, private readonly prisma: PrismaService, private readonly events: EventsService) {}
+  constructor(private readonly limiter: AttemptLimiter, private readonly shiprocket: ShiprocketWebhookService, private readonly orders: OrdersService, private readonly carts: CartService, private readonly payments: PaymentsGateway, private readonly shipping: ShippingService, private readonly prisma: PrismaService, private readonly events: EventsService) {}
 
   @Get('shipping/serviceability')
   serviceability(@Query(new ZodPipe(z.object({ pincode: pincodeSchema }))) q: { pincode: string }) {
@@ -86,12 +105,34 @@ export class CheckoutController {
     return { ok: true, ...r };
   }
 
-  @Get('orders/track')
+  /** Shiprocket tracking webhook (server-to-server): token in x-api-key, replay-safe, CSRF-exempt by exact path. */
+  @Throttle({ default: { limit: 600, ttl: 60_000 } }) @HttpCode(200) @Post('shipping/shiprocket/webhook')
+  async shiprocketWebhook(@Headers('x-api-key') token: string | undefined, @Body() body: ShiprocketTrackingPayload) {
+    this.shiprocket.authenticate(token);
+    return this.shiprocket.handle(body ?? {});
+  }
+
+  /**
+   * Guest order tracking by order number + the email or phone used.
+   * Anti-enumeration: same 404 for any wrong part; 10 req/min per IP; and failed
+   * attempts are counted per contact and per order number across IPs (Redis), so
+   * guessing order numbers for a known phone is cut off after a few tries.
+   * The guest view masks contact details and the street address.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) @Get('orders/track')
   async track(@Query(new ZodPipe(z.object({ number: z.string().trim().toUpperCase().min(5).max(30), email: z.string().trim().toLowerCase().email().optional(), phone: indianMobileSchema.optional() }).refine((q) => q.email || q.phone, { message: 'Enter the email or phone used for the order', path: ['email'] }))) q: { number: string; email?: string; phone?: string }) {
+    const contact = q.email ?? q.phone!;
+    const tooMany = 'Too many tracking attempts. Please wait an hour or sign in to see your orders.';
+    await this.limiter.assertUnder('track-contact', contact, TRACK_MAX_FAILURES, tooMany);
+    await this.limiter.assertUnder('track-number', q.number, TRACK_MAX_FAILURES, tooMany);
     const o = await this.prisma.order.findUnique({ where: { number: q.number } });
     // Same response whether the number, email or phone is wrong (no enumeration).
-    if (!o || (q.email ? o.customerEmail !== q.email : o.customerPhone !== q.phone)) throw notFound('Order');
-    return this.orders.detail({ id: o.id });
+    if (!o || (q.email ? o.customerEmail !== q.email : o.customerPhone !== q.phone)) {
+      await this.limiter.hit('track-contact', contact, 3600);
+      await this.limiter.hit('track-number', q.number, 3600);
+      throw notFound('Order');
+    }
+    return maskForGuest(await this.orders.detail({ id: o.id }));
   }
 }
 

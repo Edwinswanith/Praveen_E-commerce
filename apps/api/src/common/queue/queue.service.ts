@@ -22,6 +22,11 @@ export class QueueService implements OnModuleDestroy {
     }
   }
 
+  /** Shared Redis connection (null when queues are disabled). */
+  get redis(): IORedis | null {
+    return this.connection;
+  }
+
   get enabled() {
     return this.connection !== null;
   }

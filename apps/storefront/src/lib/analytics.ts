@@ -10,6 +10,7 @@
  *   POST /api/v1/events. It never throws and never blocks the UI.
  */
 import type { CLIENT_EVENT_TYPES } from '@vyra/shared';
+import { API_PREFIX } from '@vyra/shared';
 
 export type ClientEventType = (typeof CLIENT_EVENT_TYPES)[number];
 export type Device = 'mobile' | 'tablet' | 'desktop';
@@ -21,7 +22,7 @@ export const SESSION_IDLE_MS = 30 * 60 * 1000;
 export const FLUSH_DELAY_MS = 2000;
 const MAX_BATCH = 20;
 const SESSION_RE = /^[A-Za-z0-9_-]{16,64}$/;
-const EVENTS_URL = '/api/v1/events';
+const EVENTS_URL = `${API_PREFIX}/events`;
 
 // ---------------------------------------------------------------- storage
 interface KV {

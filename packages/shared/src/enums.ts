@@ -107,7 +107,7 @@ export type ReturnType = (typeof ReturnType)[keyof typeof ReturnType];
 export const FitFeedback = { RUNS_SMALL: 'RUNS_SMALL', TRUE_TO_SIZE: 'TRUE_TO_SIZE', RUNS_LARGE: 'RUNS_LARGE' } as const;
 export type FitFeedback = (typeof FitFeedback)[keyof typeof FitFeedback];
 
-export const OtpPurpose = { LOGIN: 'LOGIN', COD_CONFIRM: 'COD_CONFIRM' } as const;
+export const OtpPurpose = { LOGIN: 'LOGIN', COD_CONFIRM: 'COD_CONFIRM', SALE_REMINDER: 'SALE_REMINDER' } as const;
 export type OtpPurpose = (typeof OtpPurpose)[keyof typeof OtpPurpose];
 
 export const AnalyticsEventType = {

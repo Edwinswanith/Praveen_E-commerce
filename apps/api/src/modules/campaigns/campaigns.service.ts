@@ -3,7 +3,7 @@ import { Prisma, type Campaign, type CampaignPrice } from '@prisma/client';
 import {
   bulkSalePrice, computeCampaignPhase, discountPercent, formatIST, fromPaise, nextBoundary, toPaise, upToDiscountClaim, validateCampaignWindow, VISIBLE_PHASES,
   type CampaignAdminDto, type CampaignChecklistDto, type CampaignInput, type CampaignPhase, type CampaignPriceRowDto, type CampaignPublicDto, type CampaignReportDto,
-  type PromotionInput,
+  type PromotionInput, type RemindMeResponse,
 } from '@vyra/shared';
 import { z } from 'zod';
 import { campaignBulkPriceSchema, campaignPricesSchema } from '@vyra/shared';
@@ -17,6 +17,7 @@ import { MailService } from '../../common/mail/mail.service';
 import { MessagingService, WA_TEMPLATES } from '../../common/messaging/messaging.service';
 import { CategoriesService } from '../categories/categories.service';
 import { CampaignPricingService } from './campaign-pricing.service';
+import { OtpService } from '../otp/otp.service';
 
 const QUEUE = 'campaigns';
 /** Boundary sweep cadence. Prices are resolved live anyway; this only refreshes listing read models + sends notices. */
@@ -51,6 +52,7 @@ export class CampaignsService implements OnModuleInit {
     private readonly mail: MailService,
     private readonly messaging: MessagingService,
     private readonly categories: CategoriesService,
+    private readonly otp: OtpService,
   ) {}
 
   async onModuleInit() {
@@ -506,20 +508,53 @@ export class CampaignsService implements OnModuleInit {
     return rows.map((r) => r.productId);
   }
 
-  /** "Remind me": opt-in for a sale (also grants early access to signed-in customers). */
-  async remindMe(slug: string, who: { userId?: string | null; phone?: string; email?: string }) {
+  /**
+   * "Remind me" opt-in for a sale. A phone is only ever subscribed after its
+   * owner proved it: signed-in customers use their account (verified phone and
+   * account email; any phone in the body is ignored), guests confirm the number
+   * with a one-time code first (step 1 sends it, step 2 sends it back).
+   */
+  async remindMe(slug: string, who: { userId?: string | null; phone?: string; code?: string }): Promise<RemindMeResponse> {
     const c = await this.prisma.campaign.findUnique({ where: { slug } });
     if (!c || c.status === 'DRAFT') throw notFound('Sale');
     const phase = computeCampaignPhase(c);
     if (phase === 'ENDED' || phase === 'CANCELLED') throw badRequest('This sale has ended');
-    if (!who.userId && !who.phone) throw badRequest('Sign in or give a mobile number for the reminder');
-    const user = who.userId ? await this.prisma.user.findUnique({ where: { id: who.userId }, select: { phone: true, email: true } }) : null;
-    const phone = who.phone ?? user?.phone ?? null;
-    const email = who.email ?? user?.email ?? null;
-    const existing = await this.prisma.campaignSubscription.findFirst({ where: { campaignId: c.id, OR: [...(who.userId ? [{ userId: who.userId }] : []), ...(phone ? [{ phone }] : [])] } });
-    if (existing) await this.prisma.campaignSubscription.update({ where: { id: existing.id }, data: { userId: existing.userId ?? who.userId ?? null, phone: existing.phone ?? phone, email: existing.email ?? email } });
-    else await this.prisma.campaignSubscription.create({ data: { campaignId: c.id, userId: who.userId ?? null, phone, email } });
-    return { subscribed: true, earlyAccess: !!who.userId && !!c.earlyAccessStartsAt };
+    const now = new Date();
+    let userId: string | null = null;
+    let phone: string | null = null;
+    let phoneVerifiedAt: Date | null = null;
+    let email: string | null = null;
+    if (who.userId) {
+      const user = await this.prisma.user.findUnique({ where: { id: who.userId }, select: { phone: true, phoneVerifiedAt: true, email: true, emailVerifiedAt: true } });
+      if (!user) throw notFound('Customer');
+      userId = who.userId;
+      if (user.phone && user.phoneVerifiedAt) { phone = user.phone; phoneVerifiedAt = user.phoneVerifiedAt; }
+      email = user.email;
+      if (!phone && !email) throw badRequest('Add a verified phone or email to your account to get reminders');
+    } else {
+      if (!who.phone) throw badRequest('Enter your mobile number, or sign in, to get a reminder');
+      if (!who.code) {
+        const otp = await this.otp.issue(who.phone, 'SALE_REMINDER');
+        return { subscribed: false, earlyAccess: false, otp, channels: [] };
+      }
+      await this.otp.verify(who.phone, 'SALE_REMINDER', who.code);
+      phone = who.phone;
+      phoneVerifiedAt = now;
+    }
+    const existing = await this.prisma.campaignSubscription.findFirst({ where: { campaignId: c.id, OR: [...(userId ? [{ userId }] : []), ...(phone ? [{ phone }] : [])] } });
+    const data = { userId: existing?.userId ?? userId, phone: phone ?? existing?.phone ?? null, phoneVerifiedAt: phoneVerifiedAt ?? existing?.phoneVerifiedAt ?? null, email: email ?? existing?.email ?? null, consentAt: now };
+    if (existing) await this.prisma.campaignSubscription.update({ where: { id: existing.id }, data });
+    else await this.prisma.campaignSubscription.create({ data: { campaignId: c.id, ...data } });
+    const channels: RemindMeResponse['channels'] = [...(data.phone && data.phoneVerifiedAt ? ['whatsapp' as const] : []), ...(data.email ? ['email' as const] : [])];
+    return { subscribed: true, earlyAccess: !!userId && !!c.earlyAccessStartsAt, otp: null, channels };
+  }
+
+  /** Withdraw consent for a sale's reminders (signed-in customers). */
+  async cancelReminder(slug: string, userId: string) {
+    const c = await this.prisma.campaign.findUnique({ where: { slug } });
+    if (!c) throw notFound('Sale');
+    const n = await this.prisma.campaignSubscription.deleteMany({ where: { campaignId: c.id, userId } });
+    return { subscribed: false, removed: n.count };
   }
 
   // ------------------------------------------------------------------ boundary sweep
@@ -563,12 +598,12 @@ export class CampaignsService implements OnModuleInit {
         if (!n.count) continue; // another worker got it
         const url = this.saleUrl(c.slug);
         if (kind === 'ending_soon') {
-          await this.messaging.whatsapp(s.phone, WA_TEMPLATES.saleEnding, [c.name, formatIST(c.endsAt), url]);
-          if (s.email) await this.mail.send({ to: s.email, subject: `${c.name} ends ${formatIST(c.endsAt)}`, template: 'sale-ending', text: `${c.name} ends ${formatIST(c.endsAt)}. Shop now: ${url}` }).catch(() => undefined);
+          await this.messaging.whatsapp(s.phoneVerifiedAt ? s.phone : null, WA_TEMPLATES.saleEnding, [c.name, formatIST(c.endsAt), url]);
+          if (s.email && s.userId) await this.mail.send({ to: s.email, subject: `${c.name} ends ${formatIST(c.endsAt)}`, template: 'sale-ending', text: `${c.name} ends ${formatIST(c.endsAt)}. Shop now: ${url}` }).catch(() => undefined);
         } else {
           const what = kind === 'early_access' ? 'early access is open for you' : 'is live';
-          await this.messaging.whatsapp(s.phone, WA_TEMPLATES.saleLive, [c.name, what, url]);
-          if (s.email) await this.mail.send({ to: s.email, subject: `${c.name} ${what}`, template: 'sale-live', text: `${c.name} ${what}. Ends ${formatIST(c.endsAt)}. Shop now: ${url}` }).catch(() => undefined);
+          await this.messaging.whatsapp(s.phoneVerifiedAt ? s.phone : null, WA_TEMPLATES.saleLive, [c.name, what, url]);
+          if (s.email && s.userId) await this.mail.send({ to: s.email, subject: `${c.name} ${what}`, template: 'sale-live', text: `${c.name} ${what}. Ends ${formatIST(c.endsAt)}. Shop now: ${url}` }).catch(() => undefined);
         }
       }
     }

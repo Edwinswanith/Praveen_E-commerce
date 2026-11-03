@@ -11,6 +11,7 @@ export const PERM = {
   ordersWrite: 'orders:write',
   ordersRefund: 'orders:refund',
   customersRead: 'customers:read',
+  customersWrite: 'customers:write',
   promotionsRead: 'promotions:read',
   promotionsWrite: 'promotions:write',
   staffManage: 'staff:manage',

@@ -4,6 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { resolve } from 'node:path';
+import { API_PREFIX } from '@vyra/shared';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
 import { initMonitoring } from './common/monitoring/monitoring';
@@ -22,7 +23,7 @@ export async function createApp() {
   app.useBodyParser('json', { limit: '1mb' });
   const origins = env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean);
   app.enableCors({ origin: origins, credentials: true, allowedHeaders: ['content-type', 'x-requested-with', 'authorization', 'x-request-id', 'x-vyra-session', 'x-vyra-device', 'x-vyra-source'] });
-  app.setGlobalPrefix('api/v1', { exclude: ['media/(.*)'] });
+  app.setGlobalPrefix(API_PREFIX.slice(1), { exclude: ['media/(.*)'] });
 
   if (env.STORAGE_DRIVER === 'local') {
     // Only processed WebP/MP4 files ever land here; nosniff prevents content-type confusion.

@@ -7,17 +7,45 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { QueueService } from '../../common/queue/queue.service';
 import { MailService } from '../../common/mail/mail.service';
 import { ZodPipe } from '../../common/http/zod.pipe';
-import { Public } from '../auth/auth.decorators';
-import type { HealthDto } from '@vyra/shared';
+import { Public, StaffOnly } from '../auth/auth.decorators';
+import type { HealthDto, PublicHealthDto } from '@vyra/shared';
 import { PaymentsGateway } from '../payments/payments.gateway';
 import { ShippingService } from '../shipping/shipping.service';
 import { EmbeddingService } from '../ai/embedding.service';
 import { MessagingService } from '../../common/messaging/messaging.service';
 
+async function probe(prisma: PrismaService, queue: QueueService) {
+  const db = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
+  return { db, redis: await queue.ping() };
+}
+
 @ApiTags('platform')
 @Public()
 @Controller()
 export class HealthController {
+  constructor(
+    private readonly prisma: PrismaService, private readonly queue: QueueService,
+  ) {}
+
+  /** Public liveness/readiness for load balancers and uptime checks: no version or configuration details. */
+  @Get('health')
+  async health(): Promise<PublicHealthDto> {
+    const { db, redis } = await probe(this.prisma, this.queue);
+    return { status: db ? 'ok' : 'degraded', db, redis };
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } }) @HttpCode(200) @Post('newsletter')
+  async newsletter(@Body(new ZodPipe(z.object({ email: z.string().trim().toLowerCase().email() }))) b: { email: string }) {
+    await this.prisma.newsletterSubscriber.upsert({ where: { email: b.email }, create: { email: b.email }, update: {} });
+    return { ok: true };
+  }
+}
+
+/** Staff-only: version and per-integration configuration ("pending" = credentials not configured). */
+@ApiTags('admin:system')
+@StaffOnly()
+@Controller('admin')
+export class SystemHealthController {
   constructor(
     @Inject(ENV) private readonly env: Env, private readonly prisma: PrismaService, private readonly queue: QueueService, private readonly mail: MailService,
     private readonly payments: PaymentsGateway, private readonly shipping: ShippingService, private readonly embeddings: EmbeddingService,
@@ -25,10 +53,9 @@ export class HealthController {
   ) {}
 
   /** Liveness + honest integration status ("pending" = credentials not configured). */
-  @Get('health')
+  @Get('system/health')
   async health(): Promise<HealthDto> {
-    const db = await this.prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
-    const redis = await this.queue.ping();
+    const { db, redis } = await probe(this.prisma, this.queue);
     const s = (ok: boolean) => (ok ? 'configured' : 'pending');
     return {
       status: db ? ('ok' as const) : ('degraded' as const), db, redis, version: this.env.APP_VERSION,
@@ -38,11 +65,5 @@ export class HealthController {
         email: s(this.mail.configured), sms: s(this.messaging.smsConfigured), whatsapp: s(this.messaging.whatsappConfigured), embeddings: `${this.embeddings.provider.textModel}${this.embeddings.provider.configured ? '' : ' (pending)'}`, storage: this.env.STORAGE_DRIVER,
       },
     };
-  }
-
-  @Throttle({ default: { limit: 5, ttl: 60_000 } }) @HttpCode(200) @Post('newsletter')
-  async newsletter(@Body(new ZodPipe(z.object({ email: z.string().trim().toLowerCase().email() }))) b: { email: string }) {
-    await this.prisma.newsletterSubscriber.upsert({ where: { email: b.email }, create: { email: b.email }, update: {} });
-    return { ok: true };
   }
 }

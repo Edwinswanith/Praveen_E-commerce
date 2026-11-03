@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import type { Response, CookieOptions } from 'express';
 import { ENV, type Env } from '../../config/env';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { API_PREFIX } from '@vyra/shared';
 
 export type Audience = 'customer' | 'staff';
 
@@ -87,7 +88,7 @@ export class TokenService {
     const names = COOKIE[audience];
     res.cookie(names.access, tokens.access, { ...this.base('/'), maxAge: this.env.ACCESS_TOKEN_TTL_SECONDS * 1000 });
     res.cookie(names.refresh, tokens.refresh, {
-      ...this.base(audience === 'staff' ? '/api/v1/admin/auth' : '/api/v1/auth'),
+      ...this.base(audience === 'staff' ? `${API_PREFIX}/admin/auth` : `${API_PREFIX}/auth`),
       maxAge: this.env.REFRESH_TOKEN_TTL_DAYS * 86400_000,
     });
   }
@@ -95,6 +96,6 @@ export class TokenService {
   clearCookies(res: Response, audience: Audience) {
     const names = COOKIE[audience];
     res.clearCookie(names.access, this.base('/'));
-    res.clearCookie(names.refresh, this.base(audience === 'staff' ? '/api/v1/admin/auth' : '/api/v1/auth'));
+    res.clearCookie(names.refresh, this.base(audience === 'staff' ? `${API_PREFIX}/admin/auth` : `${API_PREFIX}/auth`));
   }
 }

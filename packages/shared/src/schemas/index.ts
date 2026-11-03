@@ -373,9 +373,14 @@ export const promotionSchema = z.object({
 });
 export type PromotionInput = z.infer<typeof promotionSchema>;
 
+/**
+ * "Remind me" for a sale. Signed-in customers send {} (their verified phone and
+ * account email are used). Guests send their phone, get an OTP, then resend the
+ * phone with `code`: a number is only subscribed after its owner proves it.
+ */
 export const remindMeSchema = z.object({
   phone: indianMobileSchema.optional(),
-  email: z.string().trim().toLowerCase().email().optional(),
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code').optional(),
 });
 
 export const returnPreviewSchema = z.object({

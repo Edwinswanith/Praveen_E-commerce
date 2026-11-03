@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { API_PREFIX, resolveApiUrl } from '@vyra/shared';
 
 /**
  * QR tag landing: /s/<SKU> → the product page with that colour and size
@@ -6,8 +7,7 @@ import { NextResponse, type NextRequest } from 'next/server';
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ sku: string }> }) {
   const { sku } = await params;
-  const api = process.env.API_URL ?? 'http://localhost:4000';
-  const res = await fetch(`${api}/api/v1/products/by-sku/${encodeURIComponent(sku)}`, { next: { revalidate: 300 } }).catch(() => null);
+  const res = await fetch(`${resolveApiUrl(process.env)}${API_PREFIX}/products/by-sku/${encodeURIComponent(sku)}`, { next: { revalidate: 300 } }).catch(() => null);
   if (!res?.ok) {
     // Unknown or retired SKU: still land somewhere useful instead of an error page.
     return NextResponse.redirect(new URL(`/search?q=${encodeURIComponent(sku)}`, req.url), 302);

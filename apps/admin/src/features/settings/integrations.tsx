@@ -1,9 +1,9 @@
 'use client';
 import * as React from 'react';
-import useSWR from 'swr';
 import { Alert, Badge, Button, Card, CardContent, CardHeader, CardTitle, Skeleton } from '@vyra/ui';
 import { CheckCircle2, CircleDashed, RefreshCw } from 'lucide-react';
-import { ApiError, errorMessage } from '@/lib/api';
+import { errorMessage } from '@/lib/api';
+import { useApi } from '@/lib/swr';
 import type { HealthDto } from '@/lib/types';
 import type { Tone } from '@/lib/status';
 
@@ -48,14 +48,8 @@ const BADGE: Record<IntegrationState['state'], { label: string; tone: Tone }> = 
   off: { label: 'Disabled', tone: 'neutral' },
 };
 
-async function fetchHealth(url: string): Promise<HealthDto> {
-  const res = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'include' });
-  if (!res.ok) throw new ApiError('INTERNAL', `Health check failed (${res.status})`, res.status);
-  return ((await res.json()) as { data: HealthDto }).data;
-}
-
 export function IntegrationsCard() {
-  const { data, error, isLoading, isValidating, mutate } = useSWR<HealthDto>('/api/v1/health', fetchHealth);
+  const { data, error, isLoading, isValidating, mutate } = useApi<HealthDto>('/system/health');
   const rows = data ? describeIntegrations(data.integrations) : [];
   return (
     <Card>

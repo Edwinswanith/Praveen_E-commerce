@@ -1,4 +1,5 @@
 import type { PageMeta } from '@vyra/shared';
+import { API_PREFIX } from '@vyra/shared';
 
 /** Error thrown for any non-2xx API response (or network failure). */
 export class ApiError extends Error {
@@ -41,7 +42,7 @@ export interface ApiEnvelope<T> {
 export type QueryValue = string | number | boolean | null | undefined;
 export type Query = Record<string, QueryValue>;
 
-const BASE = '/api/v1/admin';
+const BASE = `${API_PREFIX}/admin`;
 const AUTH_PATHS = ['/auth/login', '/auth/refresh', '/auth/logout'];
 
 export function buildQuery(query?: Query): string {

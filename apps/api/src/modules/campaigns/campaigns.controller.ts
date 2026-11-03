@@ -7,6 +7,7 @@ import {
   type CampaignInput, type PromotionInput,
 } from '@vyra/shared';
 import { parseOrThrow, ZodPipe } from '../../common/http/zod.pipe';
+import { unauthorized } from '../../common/http/errors';
 
 /**
  * PATCH bodies: zod 4 `.partial()` still fills defaults, which would silently
@@ -51,7 +52,14 @@ export class CampaignsController {
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) @HttpCode(200) @Post(':slug/remind-me')
   remindMe(@Param('slug') slug: string, @Body(new ZodPipe(remindMeSchema)) b: z.infer<typeof remindMeSchema>, @CurrentUser() u?: AuthUser) {
-    return this.campaigns.remindMe(slug, { userId: u?.audience === 'customer' ? u.id : null, phone: b.phone, email: b.email });
+    return this.campaigns.remindMe(slug, { userId: u?.audience === 'customer' ? u.id : null, phone: b.phone, code: b.code });
+  }
+
+  /** Withdraw consent for this sale's reminders (signed-in customers). */
+  @HttpCode(200) @Delete(':slug/remind-me')
+  cancelReminder(@Param('slug') slug: string, @CurrentUser() u?: AuthUser) {
+    if (u?.audience !== 'customer') throw unauthorized();
+    return this.campaigns.cancelReminder(slug, u.id);
   }
 }
 
