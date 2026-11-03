@@ -19,11 +19,14 @@ function describe(c: CouponDto): string {
 
 export function CouponBox({
   code,
+  autoApplied = false,
   error,
   onApply,
   onRemove,
 }: {
   code: string | null;
+  /** The best eligible coupon was picked for the shopper; nothing to remove. */
+  autoApplied?: boolean;
   error: string | null;
   onApply: (code: string) => Promise<unknown>;
   onRemove: () => Promise<unknown>;
@@ -55,7 +58,23 @@ export function CouponBox({
   return (
     <div>
       <h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Coupons</h2>
-      {code ? (
+      {code && autoApplied ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-teal-500 bg-teal-500/5 px-3 py-2">
+          <p className="flex items-center gap-2 text-sm">
+            <Tag className="size-4 shrink-0 text-teal-600" aria-hidden />
+            <span>
+              <strong>{code}</strong> applied automatically
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="min-h-11 shrink-0 rounded-md px-2 text-xs font-bold uppercase text-brand-600 hover:underline"
+          >
+            Change
+          </button>
+        </div>
+      ) : code ? (
         <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-teal-500 bg-teal-500/5 px-3 py-2">
           <p className="flex items-center gap-2 text-sm">
             <Tag className="size-4 text-teal-600" aria-hidden />

@@ -186,33 +186,74 @@ export function OrderItems({ order }: { order: OrderDetailDto }) {
   );
 }
 
+/** Where the order's savings came from, from the order's discount ledger. */
+export function orderSavingsLines(order: OrderDetailDto): { label: string; amount: number }[] {
+  const sv = order.savings ?? { campaign: 0, promotion: 0, coupon: 0, prepaid: 0 };
+  const productDiscount = Math.max(0, order.mrpTotal - order.subtotal);
+  const rows = [
+    { label: 'Discount on MRP', amount: Math.max(0, productDiscount - sv.campaign) },
+    { label: 'Sale prices', amount: sv.campaign },
+    { label: 'Bundle offer', amount: sv.promotion },
+    { label: order.couponCode ? `Coupon ${order.couponCode}` : 'Coupon', amount: sv.coupon },
+    { label: 'Paying online', amount: sv.prepaid },
+  ];
+  return rows.filter((r) => r.amount > 0);
+}
+
+export function OrderSavings({ order }: { order: OrderDetailDto }) {
+  const lines = orderSavingsLines(order);
+  if (lines.length === 0) return null;
+  const total = lines.reduce((s, l) => s + l.amount, 0);
+  return (
+    <section
+      aria-label="Your savings"
+      className="mt-3 rounded-md bg-teal-500/10 px-3 py-2 text-xs text-teal-700"
+      data-testid="order-savings"
+    >
+      <p className="font-semibold">You saved {formatINR(total)} on this order</p>
+      <dl className="mt-1 space-y-0.5">
+        {lines.map((l) => (
+          <div key={l.label} className="flex justify-between gap-3">
+            <dt>{l.label}</dt>
+            <dd className="tabular-nums">{formatINR(l.amount)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 export function OrderTotals({ order }: { order: OrderDetailDto }) {
   const productDiscount = Math.max(0, order.mrpTotal - order.subtotal);
   return (
-    <PriceSummary
-      title="Payment summary"
-      itemCount={order.itemCount}
-      couponCode={order.couponCode}
-      totals={{
-        mrpTotal: order.mrpTotal,
-        subtotal: order.subtotal,
-        productDiscount,
-        couponDiscount: order.couponDiscount,
-        promotionDiscount: order.promotionDiscount ?? 0,
-        promotionName: null,
-        campaignSavings: order.savings?.campaign ?? 0,
-        offerNote: null,
-        prepaidDiscount: order.prepaidDiscount,
-        prepaidSavings: 0,
-        shippingFee: order.shippingFee,
-        codFee: order.codFee,
-        taxTotal: order.taxTotal,
-        grandTotal: order.grandTotal,
-        codAvailable: order.paymentMethod === 'COD',
-        codUnavailableReason: null,
-        freeShippingThreshold: 0,
-      }}
-    />
+    <div>
+      <PriceSummary
+        title="Payment summary"
+        itemCount={order.itemCount}
+        couponCode={order.couponCode}
+        showSavingsNote={false}
+        totals={{
+          mrpTotal: order.mrpTotal,
+          subtotal: order.subtotal,
+          productDiscount,
+          couponDiscount: order.couponDiscount,
+          promotionDiscount: order.promotionDiscount ?? 0,
+          promotionName: null,
+          campaignSavings: order.savings?.campaign ?? 0,
+          offerNote: null,
+          prepaidDiscount: order.prepaidDiscount,
+          prepaidSavings: 0,
+          shippingFee: order.shippingFee,
+          codFee: order.codFee,
+          taxTotal: order.taxTotal,
+          grandTotal: order.grandTotal,
+          codAvailable: order.paymentMethod === 'COD',
+          codUnavailableReason: null,
+          freeShippingThreshold: 0,
+        }}
+      />
+      <OrderSavings order={order} />
+    </div>
   );
 }
 

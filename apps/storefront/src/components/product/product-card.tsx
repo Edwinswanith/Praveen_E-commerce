@@ -5,6 +5,7 @@ import { ProductImage } from './product-image';
 import { WishlistButton } from './wishlist-button';
 import { QuickViewButton } from './quick-view-button';
 import { RatingPill } from '../ui/stars';
+import { CampaignTag } from '../campaign/campaign-badge';
 
 const BADGE_TONE: Record<string, 'brand' | 'violet' | 'sun' | 'teal' | 'neutral'> = {
   new: 'violet',
@@ -93,6 +94,7 @@ export function ProductCard({
           {product.name}
         </Link>
         <Price price={product.minPrice} mrp={product.minMrp} size="sm" className="mt-0.5" />
+        {product.campaign && <CampaignTag campaign={product.campaign} className="mt-0.5" />}
         {colors.length > 1 && (
           <div
             className="mt-1 flex items-center gap-1"

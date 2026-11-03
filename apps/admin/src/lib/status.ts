@@ -1,4 +1,4 @@
-import type { OrderStatus, PaymentStatus, ProductStatus, ReturnStatus, ReturnType, ShipmentStatus, RefundStatus } from '@vyra/shared';
+import type { CampaignPhase, OrderStatus, PaymentStatus, ProductStatus, ReturnStatus, ReturnType, ShipmentStatus, RefundStatus } from '@vyra/shared';
 
 export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'violet' | 'brand' | 'teal' | 'sun';
 
@@ -50,3 +50,10 @@ export const STOCK_STATUS: Record<'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK', { l
 
 export const RETURN_TYPE_LABEL: Record<ReturnType, string> = { RETURN: 'Return', EXCHANGE: 'Exchange' };
 export const RETURN_TYPE_TONE: Record<ReturnType, Tone> = { RETURN: 'neutral', EXCHANGE: 'violet' };
+
+export const CAMPAIGN_PHASE_LABEL: Record<CampaignPhase, string> = {
+  DRAFT: 'Draft', UPCOMING: 'Upcoming', TEASER: 'Teaser', EARLY_ACCESS: 'Early access', LIVE: 'Live', PAUSED: 'Paused', ENDED: 'Ended', CANCELLED: 'Cancelled',
+};
+export const CAMPAIGN_PHASE_TONE: Record<CampaignPhase, Tone> = {
+  DRAFT: 'neutral', UPCOMING: 'info', TEASER: 'violet', EARLY_ACCESS: 'sun', LIVE: 'success', PAUSED: 'warning', ENDED: 'neutral', CANCELLED: 'danger',
+};

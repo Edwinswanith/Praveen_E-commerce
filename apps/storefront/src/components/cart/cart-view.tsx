@@ -144,12 +144,18 @@ export function CartView() {
         <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
           <CouponBox
             code={c.couponCode}
+            autoApplied={c.couponAutoApplied}
             error={c.couponError}
             onApply={cart.applyCoupon}
             onRemove={cart.removeCoupon}
           />
           <div className="border-t border-border pt-6">
-            <PriceSummary totals={c.totals} itemCount={c.itemCount} couponCode={c.couponCode} />
+            <PriceSummary
+              totals={c.totals}
+              itemCount={c.itemCount}
+              couponCode={c.couponCode}
+              couponAutoApplied={c.couponAutoApplied}
+            />
           </div>
           <div className="sticky bottom-0 -mx-4 border-t border-border bg-bg px-4 py-3 lg:static lg:mx-0 lg:border-0 lg:p-0">
             <div className="mb-2 flex items-center justify-between lg:hidden">

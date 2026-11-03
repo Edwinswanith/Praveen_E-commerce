@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Manrope } from 'next/font/google';
-import type { CategoryNode } from '@vyra/shared';
+import type { CampaignPublicDto, CategoryNode } from '@vyra/shared';
 import { Providers } from '@/components/providers';
 import { AnnouncementBar } from '@/components/layout/announcement-bar';
 import { Header } from '@/components/layout/header';
@@ -52,10 +52,10 @@ export const viewport: Viewport = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const res = await serverFetch<CategoryNode[]>('/categories', {
-    revalidate: 300,
-    timeoutMs: 4000,
-  });
+  const [res, sales] = await Promise.all([
+    serverFetch<CategoryNode[]>('/categories', { revalidate: 300, timeoutMs: 4000 }),
+    serverFetch<CampaignPublicDto[]>('/campaigns/current', { revalidate: 60, timeoutMs: 4000 }),
+  ]);
   const categories = res.ok ? res.data : [];
   return (
     <html lang="en-IN" className={`${inter.variable} ${manrope.variable}`}>
@@ -67,7 +67,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Skip to content
         </a>
         <Providers>
-          <AnnouncementBar />
+          <AnnouncementBar campaigns={sales.ok ? sales.data : null} />
           <Header initialCategories={categories} />
           <main id="main" className="flex-1">
             {children}

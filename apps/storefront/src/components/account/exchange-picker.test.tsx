@@ -94,13 +94,21 @@ describe('<ReturnDialog /> exchange', () => {
   });
 
   it('keeps refunds the default and offers every item', async () => {
-    apiMock.mockResolvedValueOnce({ id: 'ret_2' });
+    apiMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path.endsWith('/return-preview')
+          ? { refundAmount: 299, itemsValue: 299, deductions: [], note: null }
+          : { id: 'ret_2' },
+      ),
+    );
     open();
     expect(screen.getByLabelText(/Return for refund/)).toBeChecked();
     expect(screen.getByText('Logo Cap')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText(/Logo Cap/));
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Submit return' }));
+      fireEvent.click(screen.getByLabelText(/Logo Cap/));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Submit return/ }));
     });
     expect(apiMock).toHaveBeenCalledWith('/returns', {
       method: 'POST',

@@ -139,7 +139,7 @@ function AddressSummary({
         {[a.line1, a.line2, a.landmark].filter(Boolean).join(', ')}
       </p>
       <p className="text-muted">
-        {a.city}, {a.state} — {a.pincode}
+        {a.city}, {a.state} {a.pincode}
       </p>
       <p className="mt-0.5 text-muted">Mobile: {a.phone}</p>
     </>
@@ -165,6 +165,8 @@ export function CheckoutView() {
   const [placing, setPlacing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [shortfall, setShortfall] = React.useState<StockShortfall[] | null>(null);
+  // Set when the server refused the order because the total went up (e.g. a sale just ended).
+  const [priceChange, setPriceChange] = React.useState<{ from: number; to: number } | null>(null);
   const [mock, setMock] = React.useState<{
     order: OrderDetailDto;
     payment: NonNullable<CheckoutResponse['payment']>;
@@ -237,7 +239,9 @@ export function CheckoutView() {
   const {
     data: quote,
     isLoading: quoteLoading,
+    isValidating: quoteValidating,
     error: quoteError,
+    mutate: mutateQuote,
   } = useSWR<Quote>(
     quoteKey,
     ([, s, p, c, , , pin, ph]: readonly [
@@ -304,9 +308,10 @@ export function CheckoutView() {
       };
     });
 
-  const placeOrder = async () => {
+  const placeOrder = async (shownTotal: number) => {
     setError(null);
     setShortfall(null);
+    setPriceChange(null);
     let email: string | undefined;
     if (needsEmail) {
       const parsed = emailSchema.safeParse(guestEmail);
@@ -339,6 +344,8 @@ export function CheckoutView() {
           shippingMethod: shipping,
           paymentMethod,
           couponCode: cart?.couponCode ?? undefined,
+          // The total the shopper is looking at: the server refuses (409) if the real one is higher.
+          expectedTotal: shownTotal,
           idempotencyKey: getIdempotencyKey(),
         },
       });
@@ -357,12 +364,19 @@ export function CheckoutView() {
       } catch (e) {
         setError(
           e instanceof PaymentDismissed
-            ? `Payment not completed. Your order ${res.order.number} is reserved for 30 minutes — tap “Pay now” to try again.`
+            ? `Payment not completed. Your order ${res.order.number} is reserved for 30 minutes. Tap “Pay now” to try again.`
             : errorMessage(e, 'Payment failed. You can try again.'),
         );
       }
     } catch (e) {
-      if (e instanceof ApiError && e.code === 'OUT_OF_STOCK') {
+      if (e instanceof ApiError && e.code === 'PRICE_CHANGED') {
+        const d = e.details as { grandTotal?: unknown } | undefined;
+        const fresh = await Promise.all([mutateQuote(), refreshCart()]).then(([q]) => q).catch(() => undefined);
+        const to = typeof d?.grandTotal === 'number' ? d.grandTotal : fresh?.grandTotal;
+        // Never resubmit on the shopper's behalf: they review the new total and tap again.
+        if (typeof to === 'number') setPriceChange({ from: shownTotal, to });
+        else setError(e.message);
+      } else if (e instanceof ApiError && e.code === 'OUT_OF_STOCK') {
         const items = (e.details as { items?: StockShortfall[] } | undefined)?.items ?? [];
         setShortfall(items);
         setError('Some items in your bag are no longer available in the requested quantity.');
@@ -750,12 +764,17 @@ export function CheckoutView() {
                 <Spinner className="size-4" />
               </span>
             )}
-            <PriceSummary totals={totals} itemCount={cart.itemCount} couponCode={cart.couponCode} />
+            <PriceSummary
+              totals={totals}
+              itemCount={cart.itemCount}
+              couponCode={cart.couponCode}
+              couponAutoApplied={cart.couponAutoApplied}
+            />
           </div>
           {quote?.couponError && <p className="mt-2 text-xs text-danger">{quote.couponError}</p>}
           {quoteError && (
             <p className="mt-2 text-xs text-warning">
-              Showing bag totals — live quote unavailable.
+              Showing bag totals. Live quote unavailable.
             </p>
           )}
         </div>
@@ -777,6 +796,15 @@ export function CheckoutView() {
             </Link>
           </Alert>
         )}
+        {priceChange && (
+          <div data-testid="price-changed" role="alert">
+            <Alert tone="warning" title="Your total has changed">
+              Prices changed since you opened checkout (a sale may have just ended). Your new total
+              is <strong>{formatINR(priceChange.to)}</strong> (was {formatINR(priceChange.from)}).
+              Please review your order and place it again.
+            </Alert>
+          </div>
+        )}
         {error && !shortfall && <Alert tone="danger">{error}</Alert>}
         {blocked && (
           <Alert tone="warning">
@@ -790,9 +818,10 @@ export function CheckoutView() {
         <Button
           size="lg"
           block
-          onClick={() => void placeOrder()}
+          onClick={() => void placeOrder(totals.grandTotal)}
           loading={placing}
-          disabled={blocked || placing}
+          // While a new quote loads the shopper hasn't seen the total yet.
+          disabled={blocked || placing || quoteValidating}
         >
           {paymentMethod === 'COD' ? 'Place order' : `Pay ${formatINR(totals.grandTotal)}`}
         </Button>
@@ -807,7 +836,7 @@ export function CheckoutView() {
           onOpenChange={(o) => {
             if (!o) {
               setError(
-                `Payment not completed. Your order ${mock.order.number} is reserved for 30 minutes — tap “Pay” to try again.`,
+                `Payment not completed. Your order ${mock.order.number} is reserved for 30 minutes. Tap “Pay” to try again.`,
               );
               setMock(null);
             }

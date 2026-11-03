@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import type { HomeDto } from '@vyra/shared';
+import type { CampaignPublicDto, HomeDto } from '@vyra/shared';
 import { Alert } from '@vyra/ui';
 import { Container } from '@/components/ui/page-header';
 import { Hero } from '@/components/home/hero';
+import { HomeSaleBanner } from '@/components/campaign/sale-banner';
 import { CategoryTiles } from '@/components/home/category-tiles';
 import { SeasonalStrip } from '@/components/home/seasonal-strip';
 import { RecentlyViewed } from '@/components/home/recently-viewed';
@@ -13,10 +14,14 @@ import { serverFetch } from '@/lib/server-api';
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const res = await serverFetch<HomeDto>('/home', { revalidate: 60 });
+  const [res, sales] = await Promise.all([
+    serverFetch<HomeDto>('/home', { revalidate: 60 }),
+    serverFetch<CampaignPublicDto[]>('/campaigns/current', { revalidate: 60, timeoutMs: 4000 }),
+  ]);
   const home = res.ok ? res.data : null;
   return (
     <Container>
+      <HomeSaleBanner initial={sales.ok ? sales.data : null} />
       <Hero deals={home?.deals ?? null} />
       {!home && (
         <Alert tone="warning" className="mt-6" title="We’re refreshing the shelves">

@@ -6,12 +6,13 @@ import useSWR from 'swr';
 import { ArrowLeft, RotateCcw, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import type { OrderDetailDto, ReturnRequestDto } from '@vyra/shared';
-import { cancelOrderSchema, returnRequestSchema } from '@vyra/shared';
+import { cancelOrderSchema, formatINR, returnRequestSchema } from '@vyra/shared';
 import { Alert, Badge, Button, Field, Skeleton, Textarea, cn } from '@vyra/ui';
 import { api, errorMessage } from '@/lib/api';
 import { formatDate, RETURN_REASONS, RETURN_STATUS_LABEL, RETURN_STATUS_TONE } from '@/lib/format';
 import { recallCodOtp, type CodOtpHint } from '@/lib/checkout-session';
 import { ExchangePicker, exchangeOptionsFor } from './exchange-picker';
+import { ReturnPreviewPanel, useReturnPreview } from './return-preview';
 import { CodConfirmCard } from '../checkout/cod-confirm-card';
 import { Modal } from '../ui/dialog';
 import { NativeSelect } from '../ui/select';
@@ -124,6 +125,15 @@ export function ReturnDialog({
   const [missing, setMissing] = React.useState<Set<string>>(new Set());
   const [busy, setBusy] = React.useState(false);
   const listed = type === 'EXCHANGE' ? exchangeable : returnable;
+  const selected = React.useMemo(
+    () =>
+      Object.entries(qty)
+        .filter(([id, q]) => q > 0 && listed.some((i) => i.id === id))
+        .map(([orderItemId, quantity]) => ({ orderItemId, quantity })),
+    [qty, listed],
+  );
+  // Refunds only: exchanges are same-price swaps with nothing to refund.
+  const refund = useReturnPreview(order.number, selected, open && type === 'RETURN');
 
   const switchType = (t: RequestType) => {
     setType(t);
@@ -151,6 +161,8 @@ export function ReturnDialog({
       setError(`Select at least one item to ${type === 'EXCHANGE' ? 'exchange' : 'return'}.`);
       return;
     }
+    // The customer confirms only after seeing what they'll get back.
+    if (type === 'RETURN' && !refund.ready) return;
     if (type === 'EXCHANGE') {
       const lacking = new Set(items.filter((i) => !i.exchangeVariantId).map((i) => i.orderItemId));
       setMissing(lacking);
@@ -203,8 +215,16 @@ export function ReturnDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button loading={busy} onClick={() => void submit()}>
-            {type === 'EXCHANGE' ? 'Request exchange' : 'Submit return'}
+          <Button
+            loading={busy}
+            disabled={type === 'RETURN' && selected.length > 0 && !refund.ready}
+            onClick={() => void submit()}
+          >
+            {type === 'EXCHANGE'
+              ? 'Request exchange'
+              : refund.preview && selected.length > 0
+                ? `Submit return (${formatINR(refund.preview.refundAmount)} refund)`
+                : 'Submit return'}
           </Button>
         </div>
       }
@@ -311,6 +331,14 @@ export function ReturnDialog({
             </p>
           )}
         </fieldset>
+        {type === 'RETURN' && selected.length > 0 && (
+          <ReturnPreviewPanel
+            preview={refund.preview}
+            loading={refund.loading}
+            error={refund.error}
+            onRetry={refund.retry}
+          />
+        )}
         <Field label="Reason" htmlFor="ret-reason">
           <NativeSelect id="ret-reason" value={reason} onChange={(e) => setReason(e.target.value)}>
             {RETURN_REASONS.map((r) => (
@@ -483,7 +511,7 @@ export function OrderView({
               <ul>
                 {order.refunds.map((r) => (
                   <li key={r.id}>
-                    ₹{r.amount} — {r.status.toLowerCase()} ({formatDate(r.createdAt)})
+                    {formatINR(r.amount)}: {r.status.toLowerCase()} ({formatDate(r.createdAt)})
                   </li>
                 ))}
               </ul>

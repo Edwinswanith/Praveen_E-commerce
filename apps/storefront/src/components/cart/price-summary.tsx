@@ -1,21 +1,30 @@
 import type { CartTotalsDto } from '@vyra/shared';
 import { formatINR } from '@vyra/shared';
+import { Info } from 'lucide-react';
 import { cn } from '@vyra/ui';
 
 export function PriceSummary({
   totals,
   itemCount,
   couponCode,
+  couponAutoApplied = false,
+  showSavingsNote = true,
   className,
   title = 'Price details',
 }: {
   totals: CartTotalsDto;
   itemCount: number;
   couponCode?: string | null;
+  /** The coupon was picked for the shopper (no code typed). */
+  couponAutoApplied?: boolean;
+  showSavingsNote?: boolean;
   className?: string;
   title?: string;
 }) {
-  const savings = totals.productDiscount + totals.couponDiscount + totals.prepaidDiscount;
+  const promotionDiscount = totals.promotionDiscount ?? 0;
+  const campaignSavings = totals.campaignSavings ?? 0;
+  const savings =
+    totals.productDiscount + promotionDiscount + totals.couponDiscount + totals.prepaidDiscount;
   return (
     <section aria-label="Price summary" className={cn('text-sm', className)}>
       <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
@@ -32,10 +41,30 @@ export function PriceSummary({
             <dd className="tabular-nums text-teal-600">−{formatINR(totals.productDiscount)}</dd>
           </div>
         )}
+        {totals.productDiscount > 0 && campaignSavings > 0 && (
+          // Part of the discount above (sale price vs regular price), not an extra deduction.
+          <div className="-mt-1.5 flex justify-between pl-3 text-xs text-muted">
+            <dt>Sale savings (included)</dt>
+            <dd className="tabular-nums" data-testid="sale-savings">
+              {formatINR(campaignSavings)}
+            </dd>
+          </div>
+        )}
+        {promotionDiscount > 0 && (
+          <div className="flex justify-between gap-3">
+            <dt>{totals.promotionName ? `Bundle: ${totals.promotionName}` : 'Bundle offer'}</dt>
+            <dd className="shrink-0 tabular-nums text-teal-600">−{formatINR(promotionDiscount)}</dd>
+          </div>
+        )}
         {totals.couponDiscount > 0 && (
-          <div className="flex justify-between">
-            <dt>Coupon discount{couponCode ? ` (${couponCode})` : ''}</dt>
-            <dd className="tabular-nums text-teal-600">−{formatINR(totals.couponDiscount)}</dd>
+          <div className="flex justify-between gap-3">
+            <dt>
+              Coupon discount{couponCode ? ` (${couponCode})` : ''}
+              {couponAutoApplied && (
+                <span className="block text-xs text-muted">Applied automatically</span>
+              )}
+            </dt>
+            <dd className="shrink-0 tabular-nums text-teal-600">−{formatINR(totals.couponDiscount)}</dd>
           </div>
         )}
         {totals.prepaidDiscount > 0 && (
@@ -68,7 +97,17 @@ export function PriceSummary({
         </div>
       </dl>
       <p className="mt-1 text-xs text-muted">Inclusive of GST {formatINR(totals.taxTotal)}</p>
-      {savings > 0 && (
+      {totals.offerNote && (
+        <p
+          className="mt-3 flex gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs text-fg"
+          role="note"
+          data-testid="offer-note"
+        >
+          <Info className="mt-px size-3.5 shrink-0 text-muted" aria-hidden />
+          {totals.offerNote}
+        </p>
+      )}
+      {showSavingsNote && savings > 0 && (
         <p className="mt-3 rounded-md bg-teal-500/10 px-3 py-2 text-xs font-semibold text-teal-600">
           You’re saving {formatINR(savings)} on this order
         </p>
