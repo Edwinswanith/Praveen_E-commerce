@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   discountPercent, generateSku, toPaise, type AdminProductDetailDto, type AdminProductRow, type ProductCardDto, type ProductDetailDto,
-  type ProductFacets, type ProductInput, type ProductListQuery, type VariantInput,
+  type DealsSummaryDto, type ProductFacets, type ProductInput, type ProductListQuery, type VariantInput, DEAL_MIN_DISCOUNT,
 } from '@vyra/shared';
 import { z } from 'zod';
 import { productUpdateSchema } from '@vyra/shared';
@@ -113,7 +113,22 @@ export class ProductsService {
       this.categories.tree(),
     ]);
     const c = (xs: typeof trending) => xs.map((p) => toProductCard(p));
-    return { trending: c(trending), newArrivals: c(newArrivals), bestSellers: c(bestSellers), featured: c(featured), categories };
+    return { trending: c(trending), newArrivals: c(newArrivals), bestSellers: c(bestSellers), featured: c(featured), categories, deals: await this.deals() };
+  }
+
+  /**
+   * Live deal summary for banners: same discount formula as product cards
+   * (minMrp vs minPrice), in-stock products only. Prevents advertising a
+   * discount that no purchasable product has.
+   */
+  async deals(): Promise<DealsSummaryDto> {
+    const rows = await this.prisma.$queryRaw<{ minPrice: Prisma.Decimal; minMrp: Prisma.Decimal }[]>`
+      SELECT p."minPrice", p."minMrp" FROM products p WHERE ${productWhere({ inStock: true })}`;
+    const discounts = rows.map((r) => discountPercent(decToNum(r.minMrp), decToNum(r.minPrice)));
+    return {
+      maxDiscountPercent: discounts.length ? Math.max(...discounts) : 0,
+      productCount: discounts.filter((d) => d >= DEAL_MIN_DISCOUNT).length,
+    };
   }
 
   private async loadDetail(where: Prisma.ProductWhereInput): Promise<DetailProduct> {

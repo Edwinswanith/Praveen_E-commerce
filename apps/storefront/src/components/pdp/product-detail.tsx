@@ -21,6 +21,7 @@ import { VariantSelector } from './variant-selector';
 import { SizeGuide } from './size-guide';
 import { PincodeCheck } from './pincode-check';
 import { FitAdvice } from './fit-advice';
+import { RETURN_DAYS } from '@/lib/store-promises';
 
 export function ProductDetail({ product, initialVariantId }: { product: ProductDetailDto; initialVariantId?: string }) {
   const router = useRouter();
@@ -200,7 +201,7 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
         <ul className="mt-6 grid grid-cols-1 gap-2 text-sm text-muted sm:grid-cols-2">
           <li className="flex items-center gap-2">
             <RotateCcw className="size-4" aria-hidden />
-            14-day easy returns
+            {RETURN_DAYS}-day easy returns
           </li>
           <li className="flex items-center gap-2">
             <ShieldCheck className="size-4" aria-hidden />

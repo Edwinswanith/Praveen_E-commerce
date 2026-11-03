@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import type { CategoryNode, ProductCardDto } from '@vyra/shared';
+import type { HomeDto } from '@vyra/shared';
 import { Alert } from '@vyra/ui';
 import { Container } from '@/components/ui/page-header';
 import { Hero } from '@/components/home/hero';
@@ -12,20 +12,12 @@ import { serverFetch } from '@/lib/server-api';
 
 export const revalidate = 60;
 
-interface HomeDto {
-  trending: ProductCardDto[];
-  newArrivals: ProductCardDto[];
-  bestSellers: ProductCardDto[];
-  featured: ProductCardDto[];
-  categories: CategoryNode[];
-}
-
 export default async function HomePage() {
   const res = await serverFetch<HomeDto>('/home', { revalidate: 60 });
   const home = res.ok ? res.data : null;
   return (
     <Container>
-      <Hero />
+      <Hero deals={home?.deals ?? null} />
       {!home && (
         <Alert tone="warning" className="mt-6" title="We’re refreshing the shelves">
           Products couldn’t be loaded right now. Please{' '}

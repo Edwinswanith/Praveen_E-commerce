@@ -56,3 +56,16 @@ test('@mobile scanning a garment tag QR opens the product with that colour and s
   const unknown = await page.goto(`${STORE}/s/VY-XXX-99999-NOPE-M`);
   expect(unknown?.url()).toContain('/search?q=');
 });
+
+test('home price-drop banner never advertises more than the page it links to delivers', async ({ page }) => {
+  await page.goto(`${STORE}/`);
+  const tile = page.getByTestId('deal-tile');
+  const claimText = await page.getByTestId('deal-claim').textContent().catch(() => null);
+  test.skip(!claimText, 'no live deals: banner correctly makes no % claim');
+  const claim = Number(claimText!.match(/(\d+)%/)![1]);
+  await tile.click();
+  await page.waitForURL((u) => u.pathname.startsWith('/products'));
+  await expect(page.locator('main').getByText(/\d+% OFF/).first()).toBeVisible();
+  const shown = [...(await page.locator('main').innerText()).matchAll(/(\d+)% OFF/g)].map((m) => Number(m[1]));
+  expect(Math.max(...shown)).toBeGreaterThanOrEqual(claim);
+});

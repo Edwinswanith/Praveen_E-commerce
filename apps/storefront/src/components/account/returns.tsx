@@ -9,6 +9,7 @@ import { Alert, Badge, EmptyState, Skeleton } from '@vyra/ui';
 import { errorMessage } from '@/lib/api';
 import { formatDate, RETURN_REASONS, RETURN_STATUS_LABEL, RETURN_STATUS_TONE } from '@/lib/format';
 import { PageHeader } from '../ui/page-header';
+import { RETURN_DAYS } from '@/lib/store-promises';
 
 export function ReturnsPage() {
   const { data, error, isLoading } = useSWR<ReturnRequestDto[]>('/returns');
@@ -16,7 +17,7 @@ export function ReturnsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Returns"
-        subtitle="Returns and exchanges can be requested within 14 days of delivery from the order page."
+        subtitle={`Returns and exchanges can be requested within ${RETURN_DAYS} days of delivery from the order page.`}
       />
       {isLoading && <Skeleton className="h-32" />}
       {error && <Alert tone="danger">{errorMessage(error)}</Alert>}

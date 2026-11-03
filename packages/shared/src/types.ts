@@ -122,6 +122,27 @@ export interface FitSummaryDto {
   advice: string | null;
 }
 
+/**
+ * Live deal summary for promotional banners. Computed from IN-STOCK products
+ * only, using the same discount shown on product cards, so a banner can never
+ * advertise a discount a shopper can't actually buy.
+ */
+export interface DealsSummaryDto {
+  /** Highest card discount among in-stock products (0 when none). */
+  maxDiscountPercent: number;
+  /** In-stock products discounted by at least DEAL_MIN_DISCOUNT (see pricing.ts). */
+  productCount: number;
+}
+
+export interface HomeDto {
+  trending: ProductCardDto[];
+  newArrivals: ProductCardDto[];
+  bestSellers: ProductCardDto[];
+  featured: ProductCardDto[];
+  categories: CategoryNode[];
+  deals: DealsSummaryDto;
+}
+
 export interface ProductFacets {
   categories: { slug: string; name: string; count: number }[];
   sizes: { value: string; count: number }[];

@@ -3,6 +3,7 @@ import { RotateCcw, ShieldCheck, Truck } from 'lucide-react';
 import { VyraLogo } from '@vyra/ui';
 import type { NavCategory } from '@/lib/categories';
 import { NewsletterForm } from './newsletter-form';
+import { FREE_SHIPPING_TEXT, RETURN_DAYS } from '@/lib/store-promises';
 
 export function Footer({ categories }: { categories: NavCategory[] }) {
   const shop =
@@ -37,13 +38,13 @@ export function Footer({ categories }: { categories: NavCategory[] }) {
           <li className="flex items-center gap-3">
             <Truck className="size-5 text-sun-400" aria-hidden />
             <span>
-              <strong>Free shipping</strong> on orders above ₹999
+              <strong>Free shipping</strong> on orders above {FREE_SHIPPING_TEXT}
             </span>
           </li>
           <li className="flex items-center gap-3">
             <RotateCcw className="size-5 text-sun-400" aria-hidden />
             <span>
-              <strong>14-day returns</strong> on delivered orders
+              <strong>{RETURN_DAYS}-day returns</strong> on delivered orders
             </span>
           </li>
           <li className="flex items-center gap-3">

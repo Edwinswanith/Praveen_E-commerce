@@ -1,11 +1,18 @@
 import Link from 'next/link';
 import { ArrowRight } from 'lucide-react';
+import { upToDiscountClaim, type DealsSummaryDto } from '@vyra/shared';
 
 /**
  * Editorial campaign banners built from type + colour blocks (no stock photos).
  * One feature tile and two supporting tiles; on mobile they become a snap carousel.
  */
-export function Hero() {
+/**
+ * The price-drop tile states only what is true right now: "Up to X%" comes from
+ * live in-stock products (rounded down). No live data or no real deals → it
+ * shows a non-price message instead of inventing a number.
+ */
+export function Hero({ deals }: { deals: DealsSummaryDto | null }) {
+  const claim = deals ? upToDiscountClaim(deals.maxDiscountPercent) : null;
   return (
     <section aria-label="Featured campaigns" className="pt-4 sm:pt-6">
       <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 scrollbar-none sm:mx-0 sm:px-0 lg:grid lg:grid-cols-3 lg:grid-rows-2 lg:gap-4 lg:overflow-visible">
@@ -78,7 +85,8 @@ export function Hero() {
         </Link>
 
         <Link
-          href="/products?sort=discount"
+          href={claim ? '/products?sort=discount&inStock=true' : '/products?sort=newest'}
+          data-testid="deal-tile"
           className="group relative flex aspect-[4/5] w-[86%] shrink-0 snap-center flex-col justify-between overflow-hidden rounded-xl bg-sun-400 p-6 text-fg sm:aspect-[16/10] sm:w-full lg:aspect-auto"
         >
           <span
@@ -87,19 +95,29 @@ export function Hero() {
           />
           <div className="relative">
             <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-fg/70">
-              Price Drop
+              {claim ? 'Price Drop' : 'Just landed'}
             </p>
-            <h2 className="mt-2 font-display text-2xl font-extrabold leading-tight sm:text-3xl">
-              Up to
-              <br />
-              <span className="text-brand-600">60% off</span>
-            </h2>
+            {claim ? (
+              <h2 className="mt-2 font-display text-2xl font-extrabold leading-tight sm:text-3xl">
+                Up to
+                <br />
+                <span className="text-brand-600" data-testid="deal-claim">{claim}% off</span>
+              </h2>
+            ) : (
+              <h2 className="mt-2 font-display text-2xl font-extrabold leading-tight sm:text-3xl">
+                Fresh
+                <br />
+                <span className="text-brand-600">this week</span>
+              </h2>
+            )}
             <p className="mt-1 text-xs font-medium text-fg/70">
-              On selected styles. While stocks last.
+              {claim
+                ? `On ${deals!.productCount} in-stock style${deals!.productCount === 1 ? '' : 's'}. While stocks last.`
+                : 'New styles added every week.'}
             </p>
           </div>
           <span className="relative inline-flex items-center gap-1.5 text-sm font-bold underline-offset-4 group-hover:underline">
-            Shop the drop <ArrowRight className="size-4" aria-hidden />
+            {claim ? 'Shop the drop' : 'See what’s new'} <ArrowRight className="size-4" aria-hidden />
           </span>
         </Link>
       </div>

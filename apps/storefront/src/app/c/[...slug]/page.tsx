@@ -10,6 +10,7 @@ import { ProductImage } from '@/components/product/product-image';
 import { serverFetch } from '@/lib/server-api';
 import { categoryHref } from '@/lib/categories';
 import { pickListParams, LIST_KEYS, type SearchParams } from '@/lib/listing-params';
+import { FREE_SHIPPING_TEXT } from '@/lib/store-promises';
 
 type CategoryWithPath = CategoryNode & { path: { name: string; slug: string }[] };
 type Props = { params: Promise<{ slug: string[] }>; searchParams: Promise<SearchParams> };
@@ -31,7 +32,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const description =
     c.seoDescription ??
     c.description ??
-    `Shop ${c.name} at VYRA. Latest styles, best prices, free shipping above ₹999 and easy returns.`;
+    `Shop ${c.name} at VYRA. Latest styles, best prices, free shipping above ${FREE_SHIPPING_TEXT} and easy returns.`;
   const canonical = categoryHref(c.path.length ? c.path : [{ slug: c.slug }]);
   return {
     title,

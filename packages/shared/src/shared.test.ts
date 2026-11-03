@@ -87,6 +87,16 @@ describe('pricing', () => {
   });
 });
 
+describe('deal claims', () => {
+  it('never claims more than the best purchasable discount', async () => {
+    const { upToDiscountClaim } = await import('./index');
+    expect(upToDiscountClaim(47)).toBe(45);
+    expect(upToDiscountClaim(60)).toBe(60);
+    expect(upToDiscountClaim(9)).toBeNull();
+    expect(upToDiscountClaim(0)).toBeNull();
+  });
+});
+
 describe('order transitions', () => {
   it('allows the happy path and blocks skips', () => {
     expect(canTransition('PENDING_PAYMENT', 'CONFIRMED')).toBe(true);

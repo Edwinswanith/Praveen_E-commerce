@@ -33,6 +33,19 @@ export const PRICING_RULES = {
 
 export type ShippingMethod = 'STANDARD' | 'EXPRESS';
 
+/** Below this discount the storefront makes no "% off" claim at all. */
+export const DEAL_MIN_DISCOUNT = 10;
+
+/**
+ * The only honest "Up to X% off" wording: X is the best discount a shopper can
+ * actually buy right now, rounded DOWN to a multiple of 5 (never up), so the
+ * claim is always backed by at least one in-stock product. null = no claim.
+ */
+export function upToDiscountClaim(maxDiscountPercent: number): number | null {
+  if (maxDiscountPercent < DEAL_MIN_DISCOUNT) return null;
+  return Math.floor(maxDiscountPercent / 5) * 5;
+}
+
 export interface PricingLine {
   variantId: string;
   categoryIds: string[];

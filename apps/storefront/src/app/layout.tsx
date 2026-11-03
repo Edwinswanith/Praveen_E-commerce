@@ -9,6 +9,7 @@ import { serverFetch } from '@/lib/server-api';
 import { SITE_URL } from '@/lib/site';
 import { toNav } from '@/lib/categories';
 import './globals.css';
+import { FREE_SHIPPING_TEXT, RETURN_DAYS } from '@/lib/store-promises';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
 const manrope = Manrope({
@@ -25,7 +26,7 @@ export const metadata: Metadata = {
     template: '%s | VYRA',
   },
   description:
-    'Shop the latest fashion at VYRA: t-shirts, shirts, dresses, kurtas, denim and accessories for men, women and kids. Free shipping over ₹999, easy 14-day returns.',
+    `Shop the latest fashion at VYRA: t-shirts, shirts, dresses, kurtas, denim and accessories for men, women and kids. Free shipping over ${FREE_SHIPPING_TEXT}, easy ${RETURN_DAYS}-day returns.`,
   applicationName: 'VYRA',
   keywords: [
     'fashion',
