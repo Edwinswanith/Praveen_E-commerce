@@ -1,0 +1,68 @@
+/*
+ * VYRA design tokens (Tailwind CSS v4). Import AFTER `@import "tailwindcss";`.
+ * Brand: #FF3F6C primary, #7C3AED secondary, #FFD166 accent, #16A085 teal.
+ * Semantic tokens (bg, fg, muted...) are what components use; raw brand
+ * colours are for marketing surfaces only.
+ */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-manrope), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand-50: #fff1f4;
+  --color-brand-100: #ffe0e7;
+  --color-brand-200: #ffc2d0;
+  --color-brand-300: #ff94ac;
+  --color-brand-400: #ff6b8c;
+  --color-brand-500: #ff3f6c;
+  --color-brand-600: #e8215a;
+  --color-brand-700: #c3134a;
+  --color-brand-800: #a21442;
+  --color-brand-900: #8a153d;
+
+  --color-violet-500: #7c3aed;
+  --color-violet-600: #6d28d9;
+  --color-sun-300: #ffe08f;
+  --color-sun-400: #ffd166;
+  --color-teal-500: #16a085;
+  --color-teal-600: #12866f;
+
+  --color-bg: #ffffff;
+  --color-surface: #f8f8fa;
+  --color-surface-2: #f1f1f4;
+  --color-fg: #171717;
+  --color-muted: #737373;
+  --color-subtle: #a3a3a3;
+  --color-border: #eaeaea;
+  --color-border-strong: #d4d4d4;
+  --color-success: #16a085;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --color-info: #2563eb;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-card: 0 1px 2px rgb(23 23 23 / 0.04), 0 4px 16px rgb(23 23 23 / 0.06);
+  --shadow-pop: 0 8px 30px rgb(23 23 23 / 0.12);
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-shimmer: shimmer 1.6s linear infinite;
+
+  @keyframes shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; text-rendering: optimizeLegibility; }
+  body { background: var(--color-bg); color: var(--color-fg); font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, h4 { font-family: var(--font-display); letter-spacing: -0.01em; }
+  :focus-visible { outline: 2px solid var(--color-brand-500); outline-offset: 2px; }
+  ::selection { background: var(--color-brand-100); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}

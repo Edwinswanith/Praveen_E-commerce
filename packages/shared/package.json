@@ -1,0 +1,16 @@
+{
+  "name": "@vyra/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared domain types, zod validation schemas and pure business utilities for VYRA",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": { "zod": "^4.1.12" },
+  "devDependencies": { "@vyra/config": "workspace:*", "vitest": "^3.2.4", "typescript": "~5.9.3" }
+}

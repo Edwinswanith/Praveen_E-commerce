@@ -1,0 +1,1 @@
+{ "extends": "@vyra/config/tsconfig.nextjs.json", "compilerOptions": { "jsx": "react-jsx", "incremental": false }, "include": ["src"] }
