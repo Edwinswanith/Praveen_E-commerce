@@ -40,6 +40,10 @@ import { AnalyticsService } from './modules/analytics/analytics.service';
 import { AnalyticsController } from './modules/analytics/analytics.controller';
 import { AdminCouponsController, AdminCustomersController } from './modules/admin/admin.controller';
 import { HealthController } from './modules/admin/health.controller';
+import { MessagingService } from './common/messaging/messaging.service';
+import { OtpService } from './modules/otp/otp.service';
+import { CodService } from './modules/cod/cod.service';
+import { AdminCodController } from './modules/cod/cod.controller';
 
 /**
  * Modular monolith. Domain code lives in src/modules/<domain>; this module only
@@ -55,14 +59,14 @@ import { HealthController } from './modules/admin/health.controller';
     CategoriesController, AdminCategoriesController, ProductsController, ReviewWriteController, AdminProductsController,
     InventoryController, BarcodesController, CartController, PublicCouponsController, WishlistController,
     CheckoutController, CustomerOrdersController, AdminOrdersController, SearchController, AdminAiController,
-    AnalyticsController, AdminCouponsController, AdminCustomersController,
+    AnalyticsController, AdminCouponsController, AdminCustomersController, AdminCodController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
     PrismaService, AuditService, MailService, StorageService, QueueService,
     TokenService, AuthService, CategoriesService, ProductsService, ProductImportService, BarcodesService, InventoryService,
     MediaService, EmbeddingService, CouponsService, CartService, PaymentsGateway, ShippingService, OrdersService, InvoiceService,
-    SearchService, AnalyticsService,
+    SearchService, AnalyticsService, MessagingService, OtpService, CodService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: EnvelopeInterceptor },

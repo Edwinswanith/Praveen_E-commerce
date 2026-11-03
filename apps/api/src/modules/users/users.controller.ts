@@ -9,7 +9,7 @@ import { ZodPipe } from '../../common/http/zod.pipe';
 import { badRequest, conflict, forbidden, notFound } from '../../common/http/errors';
 import { paginated } from '../../common/http/envelope';
 import { CurrentUser, RequirePermissions, StaffOnly, type AuthUser } from '../auth/auth.decorators';
-import { AuthService, toSessionUser } from '../auth/auth.service';
+import { AuthService, sessionInclude, toSessionUser } from '../auth/auth.service';
 import { assignableRoles } from '../roles/permissions';
 
 export function toAddressDto(a: Address): AddressDto {
@@ -26,11 +26,27 @@ export class MeController {
 
   @Patch()
   async update(@CurrentUser() u: AuthUser, @Body(new ZodPipe(updateProfileSchema)) body: z.infer<typeof updateProfileSchema>) {
-    if (body.phone) {
-      const taken = await this.prisma.user.findFirst({ where: { phone: body.phone, NOT: { id: u.id } } });
+    const current = await this.prisma.user.findUniqueOrThrow({ where: { id: u.id } });
+    if (body.phone !== undefined && body.phone !== current.phone) {
+      if (current.phoneVerifiedAt && !current.email) throw badRequest('Your phone is your login. Add an email before changing it.');
+      const taken = body.phone ? await this.prisma.user.findFirst({ where: { phone: body.phone, phoneVerifiedAt: { not: null }, NOT: { id: u.id } } }) : null;
       if (taken) throw conflict('This phone number is linked to another account');
+      if (body.phone) await this.prisma.user.updateMany({ where: { phone: body.phone, phoneVerifiedAt: null, NOT: { id: u.id } }, data: { phone: null } });
     }
-    const user = await this.prisma.user.update({ where: { id: u.id }, data: body, include: { role: true } });
+    if (body.email && body.email !== current.email) {
+      if (await this.prisma.user.findFirst({ where: { email: body.email, NOT: { id: u.id } } })) throw conflict('This email is linked to another account');
+    }
+    const { marketingOptIn, ...userData } = body;
+    const user = await this.prisma.user.update({
+      where: { id: u.id },
+      data: {
+        ...userData,
+        ...(body.phone !== undefined && body.phone !== current.phone ? { phoneVerifiedAt: null } : {}),
+        ...(body.email && body.email !== current.email ? { emailVerifiedAt: null } : {}),
+        ...(marketingOptIn !== undefined ? { customerProfile: { upsert: { create: { marketingOptIn }, update: { marketingOptIn } } } } : {}),
+      },
+      include: sessionInclude,
+    });
     return toSessionUser(user);
   }
 

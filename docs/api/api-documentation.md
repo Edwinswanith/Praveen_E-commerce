@@ -162,3 +162,44 @@ Permission strings are `resource:action`. Role grants live in `apps/api/src/modu
 | `GET /admin/audit-logs?entity&page` | `audit:read` |
 
 `AdminProductRow` = `{ id, name, slug, brand, status, categoryName, imageUrl, variantCount, totalStock, minPrice, maxPrice, isFeatured, updatedAt }`.
+
+## v1.1 additions: phone-first identity, COD protection, exchanges, reviews
+
+### Phone OTP (customer)
+- `POST /auth/otp/request` body `{ phone }` (accepts `+91 98…`, `098…`, `98…`) → `OtpRequestResponse` (`phoneMasked`, `expiresInSeconds` 300, `resendAfterSeconds` 30, `devCode` **only** in development when no SMS provider is configured). 429 `RATE_LIMITED` with `details.retryAfterSeconds` if requested within 30s; max 5/hour.
+- `POST /auth/otp/verify` body `{ phone, code, name?, marketingOptIn? }` → `OtpVerifyResponse { user, isNewUser }` (sets session cookies, merges guest cart). New phone → 422 with `details.needsName: true` if `name` is missing (the code is NOT consumed; resubmit with name). Phone-only accounts have `email: null`.
+- `PATCH /users/me` also accepts `email`, `marketingOptIn` (WhatsApp offers + bag reminders opt-in).
+- `SessionUser` gained `phoneVerified`, `marketingOptIn`; `email` may be `null`.
+
+### Checkout & COD
+- `CartTotalsDto` gained `prepaidDiscount` (applied when paying ONLINE), `prepaidSavings` (what paying online would save: show "Save ₹x by paying online"), `codUnavailableReason`.
+- `POST /checkout/quote` also accepts `pincode`, `phone` so COD availability reflects blocked PINs / refusal history.
+- Phone-only customers must send `guestEmail` at checkout (receipt); it is saved to their profile. Error 422 `fieldErrors.guestEmail` otherwise.
+- COD orders return `codOtp: { phoneMasked, expiresInSeconds, devCode? }` and `order.codConfirmation: "PENDING"`. Show an OTP step on the confirmation page:
+  - `POST /orders/:number/confirm-cod` body `{ code }` → `OrderDetailDto` (public; OTP authorises, works for guests)
+  - `POST /orders/:number/resend-cod-otp` → `OtpRequestResponse`
+  - Unconfirmed COD orders auto-cancel after 24h. Staff can confirm after a phone call.
+- `GET /orders/track?number=&phone=` now works with phone instead of email.
+- `OrderDetailDto` gained `prepaidDiscount`, `codConfirmation`, `exchangeForOrderNumber`, `exchangeOptions` (per order item id: same-product same-price in-stock variants), and status `RTO`.
+
+### Returns & exchanges
+- `POST /returns` body adds `type: "RETURN" | "EXCHANGE"`; for EXCHANGE every item needs `exchangeVariantId` (from `exchangeOptions`). Exchanges have `refundAmount: 0`.
+- `ReturnRequestDto` gained `type`, `replacementOrderNumber`, `items[].exchangeFor`. Status `EXCHANGED` = replacement order created.
+
+### Reviews
+- `POST /products/:slug/reviews` is `multipart/form-data` (or JSON): `rating`, `title?`, `body?`, `fit?` (`RUNS_SMALL|TRUE_TO_SIZE|RUNS_LARGE`), `sizePurchased?`, `images` (≤3 photos, ≤10MB each). `ReviewDto` gained `fit`, `sizePurchased`, `images[]`.
+- `ProductDetailDto.fit: { runsSmall, trueToSize, runsLarge, total, advice }`: show `advice` near the size selector when present.
+
+### Staff
+| Endpoint | Permission |
+| --- | --- |
+| `POST /admin/orders/:id/confirm-cod` body `{ note? }` (confirmed by phone call) | `orders:write` |
+| `POST /admin/orders/:id/status` with `status: "RTO"` (shipped parcel returned undelivered: restocks, counts a COD refusal against the phone) | `orders:write` |
+| `GET /admin/orders?codPending=true` (COD orders awaiting confirmation) | `orders:read` |
+| `GET /admin/cod/settings` → `CodSettingsDto` | `orders:read` |
+| `POST /admin/cod/blocked-pincodes` body `{ pincode, reason? }`, `DELETE /admin/cod/blocked-pincodes/:pincode` → `CodSettingsDto` | `orders:write` |
+| `GET /admin/cod/risks?q&blocked&page` → `CodRiskDto[]` + meta; `PATCH /admin/cod/risks/:phone` body `{ codBlocked, note? }` | read / `orders:write` |
+| `GET /admin/analytics/cod?from&to` → `CodAnalyticsDto` | `analytics:read` |
+| `GET /admin/analytics/return-rates?from&to` → `ProductReturnRateDto[]` | `analytics:read` |
+| `GET /admin/customers/:id` now `CustomerDetailDto` (adds `stats.rto`, `codRisk`) | `customers:read` |
+Typed admin DTOs now exist for suppliers, purchase orders, scan history, staff users, audit logs and customer detail (`packages/shared/src/types.ts`).

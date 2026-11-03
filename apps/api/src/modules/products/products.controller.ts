@@ -9,7 +9,7 @@ import {
 } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
-import { ZodPipe } from '../../common/http/zod.pipe';
+import { parseOrThrow, ZodPipe } from '../../common/http/zod.pipe';
 import { paginated } from '../../common/http/envelope';
 import { badRequest, notFound } from '../../common/http/errors';
 import { StorageService } from '../../common/storage/storage.service';
@@ -63,38 +63,53 @@ export class ProductsController {
     if (!p) throw notFound('Product');
     const where = { productId: p.id, isPublished: true };
     const [rows, total, dist] = await Promise.all([
-      this.prisma.review.findMany({ where, include: { user: { select: { name: true } } }, orderBy: { createdAt: 'desc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
+      this.prisma.review.findMany({ where, include: { user: { select: { name: true } }, images: true }, orderBy: [{ createdAt: 'desc' }], skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
       this.prisma.review.count({ where }),
       this.prisma.review.groupBy({ by: ['rating'], where, _count: true }),
     ]);
     const distribution = Object.fromEntries([1, 2, 3, 4, 5].map((r) => [String(r), dist.find((d) => d.rating === r)?._count ?? 0]));
     const sum = dist.reduce((s, d) => s + d.rating * d._count, 0);
-    const items: ReviewDto[] = rows.map((r) => ({ id: r.id, rating: r.rating, title: r.title, body: r.body, authorName: r.user.name.split(' ')[0] ?? 'Customer', verifiedPurchase: r.verifiedPurchase, createdAt: r.createdAt.toISOString() }));
+    const items: ReviewDto[] = rows.map((r) => toReviewDto(r, r.user.name));
     return { items, meta: { page: q.page, pageSize: q.pageSize, total, totalPages: Math.max(1, Math.ceil(total / q.pageSize)) }, summary: { average: total ? Math.round((sum / total) * 10) / 10 : null, count: total, distribution } };
   }
+}
+
+export function toReviewDto(r: { id: string; rating: number; title: string | null; body: string | null; verifiedPurchase: boolean; createdAt: Date; fit: string | null; sizePurchased: string | null; images: { id: string; url: string; thumbUrl: string }[] }, authorName: string): ReviewDto {
+  return {
+    id: r.id, rating: r.rating, title: r.title, body: r.body, authorName: authorName.split(' ')[0] ?? 'Customer', verifiedPurchase: r.verifiedPurchase, createdAt: r.createdAt.toISOString(),
+    fit: (r.fit as ReviewDto['fit']) ?? null, sizePurchased: r.sizePurchased, images: r.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl })),
+  };
 }
 
 @ApiTags('reviews')
 @Controller('products/:slug/reviews')
 export class ReviewWriteController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly media: MediaService, private readonly storage: StorageService) {}
 
-  @Post()
-  async create(@CurrentUser() u: AuthUser, @Param('slug') slug: string, @Body(new ZodPipe(reviewSchema)) body: z.infer<typeof reviewSchema>): Promise<ReviewDto> {
+  /** multipart/form-data: rating, title?, body?, fit?, sizePurchased?, images[] (≤3 photos). JSON also accepted. */
+  @Post() @ApiConsumes('multipart/form-data', 'application/json')
+  @UseInterceptors(FilesInterceptor('images', 3, { storage: memoryStorage(), limits: { fileSize: MAX_IMAGE_BYTES, files: 3 } }))
+  async create(@CurrentUser() u: AuthUser, @Param('slug') slug: string, @Body() raw: Record<string, unknown>, @UploadedFiles() files: Express.Multer.File[] = []): Promise<ReviewDto> {
+    const body = parseOrThrow(reviewSchema, Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== '')));
     const p = await this.prisma.product.findFirst({ where: { slug, status: 'ACTIVE', deletedAt: null }, select: { id: true } });
     if (!p) throw notFound('Product');
-    const bought = await this.prisma.orderItem.findFirst({ where: { productId: p.id, order: { userId: u.id, status: 'DELIVERED' } } });
-    const review = await this.prisma.$transaction(async (tx) => {
-      const r = await tx.review.upsert({
-        where: { productId_userId: { productId: p.id, userId: u.id } },
-        create: { productId: p.id, userId: u.id, rating: body.rating, title: body.title, body: body.body, verifiedPurchase: !!bought },
-        update: { rating: body.rating, title: body.title, body: body.body, verifiedPurchase: !!bought },
-      });
-      const agg = await tx.review.aggregate({ where: { productId: p.id, isPublished: true }, _avg: { rating: true }, _count: true });
-      await tx.product.update({ where: { id: p.id }, data: { ratingAvg: agg._avg.rating ?? null, ratingCount: agg._count } });
-      return r;
-    });
-    return { id: review.id, rating: review.rating, title: review.title, body: review.body, authorName: u.name.split(' ')[0] ?? 'You', verifiedPurchase: review.verifiedPurchase, createdAt: review.createdAt.toISOString() };
+    // Verified = the customer actually received it (even if later returned or exchanged).
+    const bought = await this.prisma.orderItem.findFirst({ where: { productId: p.id, order: { userId: u.id, deliveredAt: { not: null } } }, select: { size: true }, orderBy: { order: { deliveredAt: 'desc' } } });
+    const data = { rating: body.rating, title: body.title, body: body.body, fit: body.fit ?? null, sizePurchased: body.sizePurchased ?? bought?.size ?? null, verifiedPurchase: !!bought };
+    const review = await this.prisma.review.upsert({ where: { productId_userId: { productId: p.id, userId: u.id } }, create: { productId: p.id, userId: u.id, ...data }, update: data });
+    if (files.length) {
+      // Photos are re-encoded (EXIF/GPS stripped) before storage; new photos replace old ones.
+      const processed = [];
+      for (const f of files) processed.push(await this.media.storeReviewImage(review.id, f.buffer));
+      const old = await this.prisma.reviewImage.findMany({ where: { reviewId: review.id } });
+      await this.prisma.reviewImage.deleteMany({ where: { reviewId: review.id } });
+      for (const o of old) await this.storage.delete(o.storageKey);
+      await this.prisma.reviewImage.createMany({ data: processed.map((x) => ({ reviewId: review.id, storageKey: x.key, url: x.url, thumbUrl: x.thumbUrl })) });
+    }
+    const agg = await this.prisma.review.aggregate({ where: { productId: p.id, isPublished: true }, _avg: { rating: true }, _count: true });
+    await this.prisma.product.update({ where: { id: p.id }, data: { ratingAvg: agg._avg.rating ?? null, ratingCount: agg._count } });
+    const full = await this.prisma.review.findUniqueOrThrow({ where: { id: review.id }, include: { images: true } });
+    return toReviewDto(full, u.name);
   }
 }
 

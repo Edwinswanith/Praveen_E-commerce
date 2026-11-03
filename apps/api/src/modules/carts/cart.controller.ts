@@ -47,7 +47,7 @@ export class CartController {
 
   @HttpCode(200) @Post('coupon')
   coupon(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body(new ZodPipe(applyCouponSchema)) b: { code: string }, @CurrentUser() u?: AuthUser) {
-    return this.carts.applyCoupon(this.carts.owner(req, u?.id), res, b.code, u?.email);
+    return this.carts.applyCoupon(this.carts.owner(req, u?.id), res, b.code, u?.email ?? undefined);
   }
 
   @Delete('coupon')

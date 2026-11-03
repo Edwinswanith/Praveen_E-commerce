@@ -21,6 +21,18 @@ export const registerSchema = z.object({
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
+export const indianMobileSchema = z.string().trim().transform((v) => v.replace(/^(\+91|0)/, '').replace(/[\s-]/g, '')).pipe(z.string().regex(/^[6-9]\d{9}$/, 'Enter a valid 10-digit Indian mobile number'));
+
+export const otpRequestSchema = z.object({ phone: indianMobileSchema });
+export const otpVerifySchema = z.object({
+  phone: indianMobileSchema,
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code'),
+  /** Required only when creating a new account. */
+  name: z.string().trim().min(2).max(80).optional(),
+  marketingOptIn: z.boolean().optional(),
+});
+export const codConfirmSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') });
+
 export const loginSchema = z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1).max(128) });
 export type LoginInput = z.infer<typeof loginSchema>;
 
@@ -30,6 +42,8 @@ export const changePasswordSchema = z.object({ currentPassword: z.string().min(1
 export const verifyEmailSchema = z.object({ token: z.string().min(20).max(200) });
 export const updateProfileSchema = z.object({
   name: trimmed(2, 80).optional(),
+  email: z.string().trim().toLowerCase().email().optional(),
+  marketingOptIn: z.boolean().optional(),
   phone: z.string().trim().regex(/^[6-9]\d{9}$/).optional().nullable(),
 });
 
@@ -211,7 +225,7 @@ export const verifyPaymentSchema = z.object({
 
 // ---------- Orders ----------
 export const orderStatusUpdateSchema = z.object({
-  status: z.enum(['CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED']),
+  status: z.enum(['CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED', 'RTO']),
   note: z.string().max(500).optional(),
 });
 export const cancelOrderSchema = z.object({ reason: trimmed(3, 300) });
@@ -223,10 +237,11 @@ export const shipmentCreateSchema = z.object({
 });
 export const returnRequestSchema = z.object({
   orderId: cuid,
+  type: z.enum(['RETURN', 'EXCHANGE']).default('RETURN'),
   reason: z.enum(['SIZE_ISSUE', 'DAMAGED', 'WRONG_ITEM', 'QUALITY', 'NOT_AS_DESCRIBED', 'OTHER']),
   comments: z.string().max(1000).optional(),
-  items: z.array(z.object({ orderItemId: cuid, quantity: z.coerce.number().int().positive() })).min(1),
-});
+  items: z.array(z.object({ orderItemId: cuid, quantity: z.coerce.number().int().positive(), exchangeVariantId: cuid.optional() })).min(1),
+}).refine((r) => r.type !== 'EXCHANGE' || r.items.every((i) => i.exchangeVariantId), { message: 'Choose the size/colour you want for each exchanged item', path: ['items'] });
 export const returnDecisionSchema = z.object({
   action: z.enum(['APPROVE', 'REJECT', 'RECEIVE', 'REFUND']),
   note: z.string().max(500).optional(),
@@ -251,6 +266,8 @@ export const couponSchema = z.object({
 
 export const reviewSchema = z.object({
   rating: z.coerce.number().int().min(1).max(5),
+  fit: z.enum(['RUNS_SMALL', 'TRUE_TO_SIZE', 'RUNS_LARGE']).optional(),
+  sizePurchased: z.string().trim().max(12).optional(),
   title: z.string().trim().max(100).optional(),
   body: z.string().trim().max(2000).optional(),
 });
@@ -261,6 +278,9 @@ export const staffUserSchema = z.object({
   password: passwordSchema,
   role: z.enum(['ADMIN', 'INVENTORY_MANAGER', 'ORDER_MANAGER']),
 });
+
+export const codPincodeSchema = z.object({ pincode: pincodeSchema, reason: z.string().trim().max(200).optional() });
+export const codRiskUpdateSchema = z.object({ codBlocked: z.boolean(), note: z.string().trim().max(300).optional() });
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

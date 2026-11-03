@@ -46,7 +46,7 @@ export class AuthGuard implements CanActivate {
       throw unauthorized('Your session has ended. Please sign in again.');
     }
     const role = user.role.name as RoleName;
-    req.user = { id: user.id, email: user.email, name: user.name, role, audience, permissions: permissionsFor(role) };
+    req.user = { id: user.id, email: user.email, phone: user.phone, name: user.name, role, audience, permissions: permissionsFor(role) };
 
     if (audience === 'staff') {
       if (!STAFF_ROLES.includes(role)) throw forbidden();

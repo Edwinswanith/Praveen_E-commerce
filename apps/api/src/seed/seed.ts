@@ -244,6 +244,8 @@ async function main() {
       const actor = { id: ownerId, name: 'Store Owner' };
       const fate = Math.random();
       const id = r.order.id;
+      // COD orders are confirmed before packing (demo: as if staff called the customer).
+      if (fate > 0.12) await orders.staffConfirmCod(id, 'Confirmed by phone (demo)', actor);
       if (fate > 0.12) {
         await orders.updateStatus(id, 'PACKED', 'Packed (demo)', actor);
         if (fate > 0.25) {

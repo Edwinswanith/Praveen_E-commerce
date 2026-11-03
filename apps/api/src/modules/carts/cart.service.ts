@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { ENV, type Env } from '../../config/env';
 import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
-import { fromPaise, PRICING_RULES, priceCart, type CartDto, type CartItemDto, type PricingLine, type ShippingMethod } from '@vyra/shared';
+import { fromPaise, PRICING_RULES, priceCart, type CartDto, type CartItemDto, type CartTotalsDto, type PricingLine, type PricingResult, type ShippingMethod } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { badRequest, notFound, outOfStock } from '../../common/http/errors';
 import { decToNum, decToPaise } from '../../common/money';
@@ -25,7 +26,23 @@ export interface CartOwner { userId?: string | null; guestToken?: string | null 
 
 @Injectable()
 export class CartService {
-  constructor(private readonly prisma: PrismaService, private readonly coupons: CouponsService) {}
+  constructor(@Inject(ENV) private readonly env: Env, private readonly prisma: PrismaService, private readonly coupons: CouponsService) {}
+
+  /** Prepaid incentive configured via env (rupees → paise). */
+  get prepaid() {
+    return { percent: this.env.PREPAID_DISCOUNT_PERCENT, max: Math.round(this.env.PREPAID_DISCOUNT_MAX * 100) };
+  }
+
+  totalsDto(p: PricingResult, prepaidSavings: number, codUnavailableReason: string | null): CartTotalsDto {
+    return {
+      mrpTotal: fromPaise(p.mrpTotal), subtotal: fromPaise(p.subtotal), productDiscount: fromPaise(p.productDiscount), couponDiscount: fromPaise(p.couponDiscount),
+      prepaidDiscount: fromPaise(p.prepaidDiscount), prepaidSavings: fromPaise(prepaidSavings),
+      shippingFee: fromPaise(p.shippingFee), codFee: fromPaise(p.codFee), taxTotal: fromPaise(p.taxTotal), grandTotal: fromPaise(p.grandTotal),
+      codAvailable: p.codAvailable && !codUnavailableReason && this.env.COD_ENABLED,
+      codUnavailableReason: !this.env.COD_ENABLED ? 'Cash on Delivery is currently unavailable' : codUnavailableReason ?? (p.codAvailable ? null : `Cash on Delivery is available up to ₹${fromPaise(PRICING_RULES.codMaxOrderValue)}`),
+      freeShippingThreshold: fromPaise(PRICING_RULES.freeShippingThreshold),
+    };
+  }
 
   owner(req: Request, userId?: string): CartOwner {
     if (userId) return { userId };
@@ -90,22 +107,18 @@ export class CartService {
       if ('error' in r) couponError = r.error;
       else coupon = r.coupon;
     }
-    const pricing = priceCart({ lines, coupon, shippingMethod: opts.shippingMethod, paymentMethod: opts.paymentMethod });
-    return { cart, items, pricing, couponError: couponError ?? pricing.couponError };
+    const pricing = priceCart({ lines, coupon, shippingMethod: opts.shippingMethod, paymentMethod: opts.paymentMethod, prepaid: this.prepaid });
+    const prepaidSavings = opts.paymentMethod === 'ONLINE' ? pricing.prepaidDiscount : priceCart({ lines, coupon, shippingMethod: opts.shippingMethod, paymentMethod: 'ONLINE', prepaid: this.prepaid }).prepaidDiscount;
+    return { cart, items, pricing, prepaidSavings, couponError: couponError ?? pricing.couponError };
   }
 
   async view(o: CartOwner): Promise<CartDto> {
-    const { cart, items, pricing, couponError } = await this.quote(o, {});
-    const p = pricing;
+    const { cart, items, pricing, prepaidSavings, couponError } = await this.quote(o, {});
     const dto = items.map((i) => this.toItem(i));
     return {
       id: cart?.id ?? '', items: dto.filter((i) => !i.savedForLater), savedItems: dto.filter((i) => i.savedForLater),
       couponCode: cart?.couponCode ?? null, couponError: cart?.couponCode ? couponError : null,
-      totals: {
-        mrpTotal: fromPaise(p.mrpTotal), subtotal: fromPaise(p.subtotal), productDiscount: fromPaise(p.productDiscount), couponDiscount: fromPaise(p.couponDiscount),
-        shippingFee: fromPaise(p.shippingFee), codFee: fromPaise(p.codFee), taxTotal: fromPaise(p.taxTotal), grandTotal: fromPaise(p.grandTotal),
-        codAvailable: p.codAvailable, freeShippingThreshold: fromPaise(PRICING_RULES.freeShippingThreshold),
-      },
+      totals: this.totalsDto(pricing, prepaidSavings, null),
       itemCount: dto.filter((i) => !i.savedForLater).reduce((s, i) => s + i.quantity, 0),
     };
   }

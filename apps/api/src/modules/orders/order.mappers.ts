@@ -11,13 +11,38 @@ export const orderDetailInclude = {
   returnRequests: { include: { items: { include: { orderItem: true } } }, orderBy: { createdAt: 'desc' } },
 } satisfies Prisma.OrderInclude;
 
+export const returnInclude = { items: { include: { orderItem: true } } } satisfies Prisma.ReturnRequestInclude;
+
+/** Extra lookups the plain include can't express (exchange variants, linked order numbers). */
+export interface OrderExtras {
+  variants: Map<string, { sku: string; color: string; size: string }>;
+  orderNumbers: Map<string, string>;
+}
+export const emptyExtras = (): OrderExtras => ({ variants: new Map(), orderNumbers: new Map() });
+
 export type DetailOrder = Prisma.OrderGetPayload<{ include: typeof orderDetailInclude }>;
 
-export function toReturnDto(r: Prisma.ReturnRequestGetPayload<{ include: { items: { include: { orderItem: true } } } }>, orderNumber: string): ReturnRequestDto {
+export function toReturnDto(r: Prisma.ReturnRequestGetPayload<{ include: typeof returnInclude }>, orderNumber: string, extras: OrderExtras = emptyExtras()): ReturnRequestDto {
   return {
-    id: r.id, orderId: r.orderId, orderNumber, status: r.status, reason: r.reason, comments: r.comments, refundAmount: decToNum(r.refundAmount),
-    items: r.items.map((i) => ({ orderItemId: i.orderItemId, name: i.orderItem.productName, sku: i.orderItem.sku, quantity: i.quantity })), createdAt: r.createdAt.toISOString(),
+    id: r.id, orderId: r.orderId, orderNumber, status: r.status, type: r.type, reason: r.reason, comments: r.comments, refundAmount: decToNum(r.refundAmount),
+    replacementOrderNumber: r.replacementOrderId ? extras.orderNumbers.get(r.replacementOrderId) ?? null : null,
+    items: r.items.map((i) => {
+      const v = i.exchangeVariantId ? extras.variants.get(i.exchangeVariantId) : undefined;
+      return { orderItemId: i.orderItemId, name: i.orderItem.productName, sku: i.orderItem.sku, quantity: i.quantity, exchangeFor: i.exchangeVariantId && v ? { variantId: i.exchangeVariantId, ...v } : null };
+    }),
+    createdAt: r.createdAt.toISOString(),
   };
+}
+
+/** Loads the variant + order-number lookups that return DTOs need. */
+export async function loadExtras(prisma: { productVariant: { findMany: Function }; order: { findMany: Function } }, returns: { replacementOrderId: string | null; items: { exchangeVariantId: string | null }[] }[], orderIds: (string | null)[] = []): Promise<OrderExtras> {
+  const vIds = [...new Set(returns.flatMap((r) => r.items.map((i) => i.exchangeVariantId).filter((x): x is string => !!x)))];
+  const oIds = [...new Set([...returns.map((r) => r.replacementOrderId), ...orderIds].filter((x): x is string => !!x))];
+  const [vs, os] = await Promise.all([
+    vIds.length ? (prisma.productVariant.findMany({ where: { id: { in: vIds } }, select: { id: true, sku: true, color: true, size: true } }) as Promise<{ id: string; sku: string; color: string; size: string }[]>) : [],
+    oIds.length ? (prisma.order.findMany({ where: { id: { in: oIds } }, select: { id: true, number: true } }) as Promise<{ id: string; number: string }[]>) : [],
+  ]);
+  return { variants: new Map(vs.map((v) => [v.id, { sku: v.sku, color: v.color, size: v.size }])), orderNumbers: new Map(os.map((o) => [o.id, o.number])) };
 }
 
 export function toOrderSummary(o: Prisma.OrderGetPayload<{ include: { items: true; payments: true } }>): OrderSummaryDto {
@@ -29,7 +54,7 @@ export function toOrderSummary(o: Prisma.OrderGetPayload<{ include: { items: tru
   };
 }
 
-export function toOrderDetail(o: DetailOrder): OrderDetailDto {
+export function toOrderDetail(o: DetailOrder, extras: OrderExtras = emptyExtras()): OrderDetailDto {
   const addr = o.shippingAddress as Record<string, string | null>;
   const withinWindow = o.deliveredAt ? Date.now() - o.deliveredAt.getTime() <= RETURN_WINDOW_DAYS * 86400_000 : false;
   const returnable = o.items.some((i) => i.quantity - i.returnedQuantity > 0);
@@ -46,6 +71,8 @@ export function toOrderDetail(o: DetailOrder): OrderDetailDto {
       city: addr.city ?? '', state: addr.state ?? '', pincode: addr.pincode ?? '', type: (addr.type as 'HOME' | 'WORK' | 'OTHER') ?? 'HOME',
     },
     mrpTotal: decToNum(o.mrpTotal), subtotal: decToNum(o.subtotal), couponCode: o.couponCode, couponDiscount: decToNum(o.couponDiscount),
+    prepaidDiscount: decToNum(o.prepaidDiscount), codConfirmation: o.codConfirmation,
+    exchangeForOrderNumber: o.exchangeForOrderId ? extras.orderNumbers.get(o.exchangeForOrderId) ?? null : null,
     shippingFee: decToNum(o.shippingFee), codFee: decToNum(o.codFee), taxTotal: decToNum(o.taxTotal), shippingMethod: o.shippingMethod,
     events: o.events.map((e) => ({ status: e.status, note: e.note, createdAt: e.createdAt.toISOString(), actor: e.actorName })),
     payments: o.payments.map((p) => ({ id: p.id, provider: p.provider, method: p.method, status: p.status, amount: decToNum(p.amount), providerOrderId: p.providerOrderId, providerPaymentId: p.providerPaymentId, createdAt: p.createdAt.toISOString() })),
@@ -55,7 +82,7 @@ export function toOrderDetail(o: DetailOrder): OrderDetailDto {
       trackingUrl: o.shipment.trackingUrl, labelUrl: o.shipment.labelUrl, shippedAt: o.shipment.shippedAt?.toISOString() ?? null, deliveredAt: o.shipment.deliveredAt?.toISOString() ?? null,
       events: o.shipment.events.map((e) => ({ status: e.status, location: e.location, description: e.description, occurredAt: e.occurredAt.toISOString() })),
     } : null,
-    returns: o.returnRequests.map((r) => toReturnDto(r, o.number)),
+    returns: o.returnRequests.map((r) => toReturnDto(r, o.number, extras)),
     canCancel: CUSTOMER_CANCELLABLE.includes(o.status),
     canReturn: o.status === 'DELIVERED' && withinWindow && returnable && !openReturn,
   };

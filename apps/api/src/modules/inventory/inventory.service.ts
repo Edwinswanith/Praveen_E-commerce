@@ -181,6 +181,23 @@ export class InventoryService {
     };
   }
 
+  /**
+   * Proves the ledger and the stock table agree: for every variant, onHand and
+   * reserved must equal the sum of their ledger deltas. Any row returned means
+   * stock was changed outside InventoryService.apply (a bug or a manual DB edit).
+   */
+  async reconcile() {
+    const drift = await this.prisma.$queryRaw<{ variantId: string; sku: string; onHand: number; ledgerOnHand: number; reserved: number; ledgerReserved: number }[]>`
+      SELECT i."variantId", v.sku, i."onHand", coalesce(sum(m."onHandDelta"), 0)::int AS "ledgerOnHand",
+             i.reserved, coalesce(sum(m."reservedDelta"), 0)::int AS "ledgerReserved"
+        FROM inventory i JOIN product_variants v ON v.id = i."variantId"
+        LEFT JOIN inventory_movements m ON m."variantId" = i."variantId"
+       GROUP BY i."variantId", v.sku, i."onHand", i.reserved
+      HAVING i."onHand" <> coalesce(sum(m."onHandDelta"), 0) OR i.reserved <> coalesce(sum(m."reservedDelta"), 0)`;
+    const [{ n }] = await this.prisma.$queryRaw<{ n: bigint }[]>`SELECT count(*)::bigint AS n FROM inventory`;
+    return { checkedVariants: Number(n), consistent: drift.length === 0, drift, checkedAt: new Date().toISOString() };
+  }
+
   async summary() {
     const [s] = await this.prisma.$queryRaw<{ units: bigint; reserved: bigint; low: bigint; out: bigint; valuation: Prisma.Decimal | null; retail: Prisma.Decimal | null }[]>`
       SELECT coalesce(sum(i."onHand"),0)::bigint AS units, coalesce(sum(i.reserved),0)::bigint AS reserved,

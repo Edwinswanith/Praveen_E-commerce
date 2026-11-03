@@ -23,6 +23,12 @@ export const PRICING_RULES = {
   gstSlabThreshold: 250_000,
   gstLowRate: 5,
   gstHighRate: 18,
+  /**
+   * Prepaid incentive: COD refusals (RTO) are the biggest margin leak in Indian
+   * fashion, so online payment earns a small discount. Set percent to 0 to disable.
+   */
+  prepaidDiscountPercent: 5,
+  prepaidDiscountMax: 10_000,
 } as const;
 
 export type ShippingMethod = 'STANDARD' | 'EXPRESS';
@@ -49,6 +55,7 @@ export interface PricingCoupon {
 export interface PricedLine extends PricingLine {
   lineTotal: Paise;
   lineMrpTotal: Paise;
+  /** Coupon + prepaid discount allocated to this line. */
   discountShare: Paise;
   taxableValue: Paise;
   gstRate: number;
@@ -63,6 +70,7 @@ export interface PricingResult {
   couponDiscount: Paise;
   couponCode: string | null;
   couponError: string | null;
+  prepaidDiscount: Paise;
   shippingFee: Paise;
   codFee: Paise;
   taxTotal: Paise;
@@ -104,6 +112,8 @@ export function priceCart(input: {
   coupon?: PricingCoupon | null;
   shippingMethod?: ShippingMethod;
   paymentMethod?: 'ONLINE' | 'COD';
+  /** Override PRICING_RULES prepaid discount (percent 0 disables). */
+  prepaid?: { percent: number; max: number };
 }): PricingResult {
   const { lines } = input;
   for (const l of lines) {
@@ -121,22 +131,21 @@ export function priceCart(input: {
     couponError = r.error;
   }
 
-  // Allocate the coupon discount proportionally across eligible lines so per-line
-  // taxable values (and therefore GST) are correct. Remainder goes to the last line.
   const eligibleIdx = lines
     .map((l, i) => ({ l, i }))
     .filter(({ l }) => !input.coupon?.categoryIds?.length || l.categoryIds.some((c) => input.coupon!.categoryIds!.includes(c)))
     .map(({ i }) => i);
-  const eligibleTotal = eligibleIdx.reduce((s, i) => s + lines[i]!.unitPrice * lines[i]!.quantity, 0);
   const shares = new Array<number>(lines.length).fill(0);
-  if (couponDiscount > 0 && eligibleTotal > 0) {
-    let allocated = 0;
-    eligibleIdx.forEach((i, k) => {
-      const lt = lines[i]!.unitPrice * lines[i]!.quantity;
-      const share = k === eligibleIdx.length - 1 ? couponDiscount - allocated : Math.floor((couponDiscount * lt) / eligibleTotal);
-      shares[i] = share;
-      allocated += share;
-    });
+  allocate(shares, lines, eligibleIdx, couponDiscount);
+
+  // Prepaid discount applies to the post-coupon value of every line (ONLINE only).
+  let prepaidDiscount = 0;
+  const pct = input.prepaid?.percent ?? PRICING_RULES.prepaidDiscountPercent;
+  if (input.paymentMethod === 'ONLINE' && pct > 0 && lines.length) {
+    const base = subtotal - couponDiscount;
+    prepaidDiscount = Math.min(Math.floor((base * pct) / 100), input.prepaid?.max ?? PRICING_RULES.prepaidDiscountMax);
+    const after = lines.map((l, i) => l.unitPrice * l.quantity - shares[i]!);
+    allocate(shares, lines, lines.map((_, i) => i), prepaidDiscount, after);
   }
 
   const priced: PricedLine[] = lines.map((l, i) => {
@@ -154,14 +163,15 @@ export function priceCart(input: {
     };
   });
 
-  const netSubtotal = subtotal - couponDiscount;
+  const netSubtotal = subtotal - couponDiscount - prepaidDiscount;
   const method = input.shippingMethod ?? 'STANDARD';
   let shippingFee = 0;
   if (lines.length > 0) {
     if (method === 'EXPRESS') shippingFee = PRICING_RULES.expressShippingFee;
-    else shippingFee = netSubtotal >= PRICING_RULES.freeShippingThreshold ? 0 : PRICING_RULES.standardShippingFee;
+    // Threshold uses the pre-prepaid-discount value so paying online never loses free shipping.
+    else shippingFee = subtotal - couponDiscount >= PRICING_RULES.freeShippingThreshold ? 0 : PRICING_RULES.standardShippingFee;
   }
-  const codAvailable = netSubtotal + shippingFee <= PRICING_RULES.codMaxOrderValue;
+  const codAvailable = subtotal - couponDiscount + shippingFee <= PRICING_RULES.codMaxOrderValue;
   const codFee = input.paymentMethod === 'COD' ? PRICING_RULES.codFee : 0;
 
   return {
@@ -172,10 +182,25 @@ export function priceCart(input: {
     couponDiscount,
     couponCode: input.coupon && !couponError ? input.coupon.code : null,
     couponError,
+    prepaidDiscount,
     shippingFee,
     codFee,
     taxTotal: priced.reduce((s, l) => s + l.taxAmount, 0),
     grandTotal: netSubtotal + shippingFee + codFee,
     codAvailable,
   };
+}
+
+/** Adds `amount` across `idx` lines proportionally to their value; remainder to the last. */
+function allocate(shares: number[], lines: PricingLine[], idx: number[], amount: number, values?: number[]) {
+  if (amount <= 0 || !idx.length) return;
+  const val = (i: number) => (values ? values[i]! : lines[i]!.unitPrice * lines[i]!.quantity);
+  const total = idx.reduce((s, i) => s + val(i), 0);
+  if (total <= 0) return;
+  let given = 0;
+  idx.forEach((i, k) => {
+    const share = k === idx.length - 1 ? amount - given : Math.floor((amount * val(i)) / total);
+    shares[i]! += share;
+    given += share;
+  });
 }

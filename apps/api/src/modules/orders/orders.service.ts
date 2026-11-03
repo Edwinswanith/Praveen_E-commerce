@@ -14,10 +14,13 @@ import { QueueService } from '../../common/queue/queue.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CartService, type CartOwner } from '../carts/cart.service';
 import { CouponsService } from '../coupons/coupons.service';
+import { CodService } from '../cod/cod.service';
+import { OtpService, maskPhone } from '../otp/otp.service';
+import { MessagingService, WA_TEMPLATES } from '../../common/messaging/messaging.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { PaymentsGateway } from '../payments/payments.gateway';
 import { ShippingService } from '../shipping/shipping.service';
-import { orderDetailInclude, toOrderDetail } from './order.mappers';
+import { loadExtras, orderDetailInclude, returnInclude, toOrderDetail } from './order.mappers';
 
 const MAINTENANCE_QUEUE = 'maintenance';
 type Actor = { id: string | null; name: string };
@@ -38,17 +41,36 @@ export class OrdersService implements OnModuleInit {
     private readonly mail: MailService,
     private readonly queue: QueueService,
     private readonly audit: AuditService,
+    private readonly cod: CodService,
+    private readonly otp: OtpService,
+    private readonly messaging: MessagingService,
   ) {}
 
   async onModuleInit() {
-    this.queue.process(MAINTENANCE_QUEUE, async () => this.expireReservations(), 1);
+    this.queue.process(MAINTENANCE_QUEUE, async (job) => (job.name === 'abandoned-carts' ? this.remindAbandonedCarts() : this.expireReservations()), 1);
+    await this.queue.repeat(MAINTENANCE_QUEUE, 'abandoned-carts', 3600_000).catch((e) => this.logger.warn(`Scheduler: ${(e as Error).message}`));
     await this.queue.repeat(MAINTENANCE_QUEUE, 'expire-reservations', 60_000).catch((e) => this.logger.warn(`Scheduler: ${(e as Error).message}`));
   }
 
   async detail(where: Prisma.OrderWhereUniqueInput): Promise<OrderDetailDto> {
     const o = await this.prisma.order.findUnique({ where, include: orderDetailInclude });
     if (!o) throw notFound('Order');
-    return toOrderDetail(o);
+    const dto = toOrderDetail(o, await loadExtras(this.prisma, o.returnRequests, [o.exchangeForOrderId]));
+    if (dto.canReturn) dto.exchangeOptions = await this.exchangeOptions(o.items.map((i) => ({ id: i.id, productId: i.productId, variantId: i.variantId, unitPrice: i.unitPrice })));
+    return dto;
+  }
+
+  /** Per order item: same product, same price, in-stock variants the customer may swap to. */
+  private async exchangeOptions(items: { id: string; productId: string; variantId: string; unitPrice: Prisma.Decimal }[]) {
+    const variants = await this.prisma.productVariant.findMany({ where: { productId: { in: items.map((i) => i.productId) }, isActive: true }, include: { inventory: true }, orderBy: [{ color: 'asc' }, { sizeOrder: 'asc' }] });
+    const out: Record<string, { variantId: string; color: string; size: string; available: number }[]> = {};
+    for (const i of items) {
+      out[i.id] = variants
+        .filter((v) => v.productId === i.productId && v.id !== i.variantId && decToPaise(v.price) === decToPaise(i.unitPrice))
+        .map((v) => ({ variantId: v.id, color: v.color, size: v.size, available: Math.max(0, (v.inventory?.onHand ?? 0) - (v.inventory?.reserved ?? 0)) }))
+        .filter((v) => v.available > 0);
+    }
+    return out;
   }
 
   private async newNumber(tx: Tx) {
@@ -67,14 +89,10 @@ export class OrdersService implements OnModuleInit {
 
   // ------------------------------------------------------------------ checkout
 
-  async quote(owner: CartOwner, input: { shippingMethod: 'STANDARD' | 'EXPRESS'; paymentMethod: 'ONLINE' | 'COD'; couponCode?: string | null }, email?: string) {
-    const { pricing, couponError } = await this.carts.quote(owner, { ...input, email });
-    const p = pricing;
-    return {
-      mrpTotal: fromPaise(p.mrpTotal), subtotal: fromPaise(p.subtotal), productDiscount: fromPaise(p.productDiscount), couponDiscount: fromPaise(p.couponDiscount),
-      shippingFee: fromPaise(p.shippingFee), codFee: fromPaise(p.codFee), taxTotal: fromPaise(p.taxTotal), grandTotal: fromPaise(p.grandTotal),
-      codAvailable: p.codAvailable && this.env.COD_ENABLED, freeShippingThreshold: fromPaise(PRICING_RULES.freeShippingThreshold), couponError,
-    };
+  async quote(owner: CartOwner, input: { shippingMethod: 'STANDARD' | 'EXPRESS'; paymentMethod: 'ONLINE' | 'COD'; couponCode?: string | null; pincode?: string; phone?: string }, user?: { email: string | null; phone: string | null }) {
+    const { pricing, prepaidSavings, couponError } = await this.carts.quote(owner, { ...input, email: user?.email });
+    const reason = await this.cod.blockReason(input.phone ?? user?.phone, input.pincode);
+    return { ...this.carts.totalsDto(pricing, prepaidSavings, reason), couponError };
   }
 
   /**
@@ -83,15 +101,20 @@ export class OrdersService implements OnModuleInit {
    * Stock is reserved inside the same transaction that creates the order, so
    * either both happen or neither does.
    */
-  async checkout(owner: CartOwner, user: { id: string; email: string; name: string } | undefined, input: CheckoutInput): Promise<CheckoutResponse> {
+  async checkout(owner: CartOwner, user: { id: string; email: string | null; name: string } | undefined, input: CheckoutInput): Promise<CheckoutResponse> {
     const replay = await this.prisma.order.findUnique({ where: { idempotencyKey: input.idempotencyKey }, include: { payments: true } });
     if (replay) {
       if ((replay.userId ?? null) !== (user?.id ?? null)) throw conflict('Idempotency key already used');
       return this.checkoutResponse(replay.id);
     }
 
+    // Phone-only accounts provide an email once at checkout for invoices/receipts.
     const email = user?.email ?? input.guestEmail?.toLowerCase();
-    if (!email) throw badRequest('Email is required for guest checkout', { fieldErrors: { guestEmail: ['Required'] } });
+    if (!email) throw new AppError('VALIDATION_FAILED', 'Add an email for your order receipt', 422, { fieldErrors: { guestEmail: ['Required'] }, formErrors: [] });
+    if (user && !user.email && input.guestEmail) {
+      const taken = await this.prisma.user.findFirst({ where: { email, NOT: { id: user.id } } });
+      if (!taken) await this.prisma.user.update({ where: { id: user.id }, data: { email } });
+    }
 
     let address: Record<string, unknown>;
     if (input.addressId) {
@@ -127,7 +150,11 @@ export class OrdersService implements OnModuleInit {
     }
 
     if (input.paymentMethod === 'ONLINE' && !this.payments.provider) throw new AppError('NOT_CONFIGURED', 'Online payments are pending configuration. Please choose Cash on Delivery.', HttpStatus.SERVICE_UNAVAILABLE);
-    if (input.paymentMethod === 'COD' && (!this.env.COD_ENABLED || !svc.codAvailable)) throw badRequest('Cash on Delivery is not available for this order');
+    if (input.paymentMethod === 'COD') {
+      if (!svc.codAvailable) throw badRequest('Cash on Delivery is not available for this PIN code');
+      const reason = await this.cod.blockReason(String(address.phone), String(address.pincode));
+      if (reason) throw badRequest(reason);
+    }
 
     const couponCode = input.couponCode ?? cart!.couponCode;
     let couponRow: { id: string } | null = null;
@@ -139,7 +166,7 @@ export class OrdersService implements OnModuleInit {
       couponRow = r.row;
     }
     const lines = this.carts.pricingLines(active);
-    const pricing = priceCart({ lines, coupon, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod });
+    const pricing = priceCart({ lines, coupon, shippingMethod: input.shippingMethod, paymentMethod: input.paymentMethod, prepaid: this.carts.prepaid });
     if (pricing.couponError) throw badRequest(pricing.couponError);
     if (input.paymentMethod === 'COD' && !pricing.codAvailable) throw badRequest(`Cash on Delivery is available up to ${fromPaise(PRICING_RULES.codMaxOrderValue)} rupees`);
 
@@ -153,6 +180,7 @@ export class OrdersService implements OnModuleInit {
           data: {
             number, userId: user?.id ?? null, customerName: String(address.fullName), customerEmail: email, customerPhone: String(address.phone),
             status: isCod ? 'CONFIRMED' : 'PENDING_PAYMENT', confirmedAt: isCod ? new Date() : null, paymentMethod: input.paymentMethod,
+            codConfirmation: isCod ? 'PENDING' : 'NOT_REQUIRED', prepaidDiscount: paiseToDec(pricing.prepaidDiscount),
             shippingMethod: input.shippingMethod, shippingAddress: address as Prisma.InputJsonValue, idempotencyKey: input.idempotencyKey,
             mrpTotal: paiseToDec(pricing.mrpTotal), subtotal: paiseToDec(pricing.subtotal), couponCode: pricing.couponCode, couponDiscount: paiseToDec(pricing.couponDiscount),
             shippingFee: paiseToDec(pricing.shippingFee), codFee: paiseToDec(pricing.codFee), taxTotal: paiseToDec(pricing.taxTotal), grandTotal: paiseToDec(pricing.grandTotal),
@@ -178,7 +206,7 @@ export class OrdersService implements OnModuleInit {
           await tx.couponUsage.create({ data: { couponId: couponRow.id, userId: user?.id ?? null, email, orderId: order.id, discount: paiseToDec(pricing.couponDiscount) } });
         }
         await tx.payment.create({ data: { orderId: order.id, provider: isCod ? 'cod' : this.payments.provider!.name, method: input.paymentMethod, amount: paiseToDec(pricing.grandTotal) } });
-        await this.addEvent(tx, order.id, isCod ? 'CONFIRMED' : 'PENDING_PAYMENT', isCod ? 'Cash on Delivery order confirmed' : 'Awaiting payment', { id: user?.id ?? null, name: user?.name ?? 'Guest' });
+        await this.addEvent(tx, order.id, isCod ? 'CONFIRMED' : 'PENDING_PAYMENT', isCod ? 'Cash on Delivery order placed; awaiting OTP confirmation' : 'Awaiting payment', { id: user?.id ?? null, name: user?.name ?? 'Guest' });
         return order.id;
       }, { isolationLevel: 'ReadCommitted', timeout: 15_000 });
     } catch (e) {
@@ -199,10 +227,59 @@ export class OrdersService implements OnModuleInit {
         await this.cancel(orderId, 'Payment gateway unavailable', SYSTEM, { refund: false });
         throw new AppError('PAYMENT_FAILED', 'We could not start the payment. No money was taken; please try again.', HttpStatus.BAD_GATEWAY);
       }
-    } else {
-      void this.notifyConfirmed(orderId);
+      return this.checkoutResponse(orderId);
     }
-    return this.checkoutResponse(orderId);
+    // COD: the customer must confirm with an OTP sent to the delivery phone.
+    let codOtp: CheckoutResponse['codOtp'] = null;
+    try {
+      codOtp = await this.otp.issue(String(address.phone), 'COD_CONFIRM', orderId);
+    } catch (e) {
+      this.logger.warn(`COD OTP not sent for ${orderId}: ${(e as Error).message}`);
+      codOtp = { phoneMasked: maskPhone(String(address.phone)), expiresInSeconds: 0 };
+    }
+    return { ...(await this.checkoutResponse(orderId)), codOtp };
+  }
+
+  // ------------------------------------------------------------------ COD confirmation
+
+  private async codOrder(number: string) {
+    const o = await this.prisma.order.findUnique({ where: { number } });
+    if (!o || o.paymentMethod !== 'COD') throw notFound('Order');
+    if (o.status === 'CANCELLED') throw badRequest('This order was cancelled');
+    return o;
+  }
+
+  async resendCodOtp(number: string) {
+    const o = await this.codOrder(number);
+    if (o.codConfirmation !== 'PENDING') throw badRequest('This order is already confirmed');
+    return this.otp.issue(o.customerPhone, 'COD_CONFIRM', o.id);
+  }
+
+  /** Customer proves they control the delivery phone; the order may now be packed. */
+  async confirmCod(number: string, code: string) {
+    const o = await this.codOrder(number);
+    if (o.codConfirmation === 'CONFIRMED') return this.detail({ id: o.id });
+    await this.otp.verify(o.customerPhone, 'COD_CONFIRM', code, o.id);
+    await this.markCodConfirmed(o.id, 'Confirmed by customer (OTP)', { id: o.userId, name: o.customerName });
+    return this.detail({ id: o.id });
+  }
+
+  /** Staff confirmed by calling the customer. */
+  async staffConfirmCod(orderId: string, note: string | undefined, actor: Actor) {
+    const o = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!o || o.paymentMethod !== 'COD') throw notFound('COD order');
+    if (o.status === 'CANCELLED') throw badRequest('This order was cancelled');
+    if (o.codConfirmation !== 'CONFIRMED') await this.markCodConfirmed(o.id, note ?? 'Confirmed by phone call', actor);
+    return this.detail({ id: o.id });
+  }
+
+  private async markCodConfirmed(orderId: string, note: string, actor: Actor) {
+    const n = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.order.updateMany({ where: { id: orderId, codConfirmation: 'PENDING' }, data: { codConfirmation: 'CONFIRMED', codConfirmedAt: new Date() } });
+      if (r.count) await this.addEvent(tx, orderId, 'CONFIRMED', note, actor);
+      return r.count;
+    });
+    if (n) void this.notifyConfirmed(orderId);
   }
 
   async checkoutResponse(orderId: string): Promise<CheckoutResponse> {
@@ -212,6 +289,7 @@ export class OrdersService implements OnModuleInit {
     const needsPayment = order.status === 'PENDING_PAYMENT' && pay?.providerOrderId && provider;
     return {
       order,
+      codOtp: null,
       payment: needsPayment ? {
         provider: provider!.name, keyId: provider!.keyId, providerOrderId: pay!.providerOrderId!, amount: Math.round(order.grandTotal * 100), currency: 'INR',
         name: 'VYRA', prefill: { name: order.customerName, email: order.customerEmail, contact: order.shippingAddress.phone },
@@ -340,17 +418,29 @@ export class OrdersService implements OnModuleInit {
     for (const o of expired) {
       await this.cancel(o.id, 'Payment not completed in time', SYSTEM, { refund: false }).catch((e) => this.logger.warn(`Expire ${o.id}: ${(e as Error).message}`));
     }
-    return { expired: expired.length };
+    const unconfirmed = await this.prisma.order.findMany({
+      where: { paymentMethod: 'COD', codConfirmation: 'PENDING', status: 'CONFIRMED', createdAt: { lt: new Date(Date.now() - this.env.COD_CONFIRM_WINDOW_HOURS * 3600_000) } },
+      select: { id: true }, take: 100,
+    });
+    for (const o of unconfirmed) {
+      await this.cancel(o.id, 'Cash on Delivery order was not confirmed', SYSTEM, { refund: false }).catch((e) => this.logger.warn(`Expire COD ${o.id}: ${(e as Error).message}`));
+    }
+    return { expired: expired.length, codUnconfirmed: unconfirmed.length };
   }
 
   async updateStatus(orderId: string, to: OrderStatus, note: string | undefined, actor: Actor) {
     if (to === 'CANCELLED') return this.cancel(orderId, note ?? 'Cancelled by staff', actor);
     if (to === 'SHIPPED') return this.ship(orderId, { provider: 'MANUAL' }, actor);
     if (to === 'RETURNED') throw badRequest('Orders become RETURNED through the returns workflow');
+    if (to === 'RTO') return this.markRto(orderId, note, actor);
     await this.prisma.$transaction(async (tx) => {
       const [locked] = await tx.$queryRaw<{ status: OrderStatus }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`;
       if (!locked) throw notFound('Order');
       if (!canTransition(locked.status, to)) throw badRequest(`Cannot move an order from ${locked.status} to ${to}`);
+      if (to === 'PACKED') {
+        const o = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { codConfirmation: true } });
+        if (o.codConfirmation === 'PENDING') throw badRequest('Confirm this Cash on Delivery order (customer OTP or a phone call) before packing');
+      }
       const now = new Date();
       await tx.order.update({ where: { id: orderId }, data: { status: to, ...(to === 'DELIVERED' ? { deliveredAt: now } : {}), ...(to === 'CONFIRMED' ? { confirmedAt: now } : {}) } });
       if (to === 'OUT_FOR_DELIVERY' || to === 'DELIVERED') {
@@ -365,6 +455,38 @@ export class OrdersService implements OnModuleInit {
         for (const i of items) await tx.product.update({ where: { id: i.productId }, data: { soldCount: { increment: i.quantity } } });
       }
       await this.addEvent(tx, orderId, to, note ?? null, actor);
+    });
+    if (to === 'DELIVERED') void this.notify(orderId, 'delivered');
+    return this.detail({ id: orderId });
+  }
+
+  /**
+   * Parcel came back undelivered. Goods are restocked (they already left stock
+   * at shipping), the shipment is marked RTO and, for COD, the customer's phone
+   * accrues a refusal that can auto-disable COD. Prepaid RTOs are refunded by
+   * staff via the refunds endpoint (shipping cost policy is a business decision).
+   */
+  async markRto(orderId: string, note: string | undefined, actor: Actor) {
+    await this.prisma.$transaction(async (tx) => {
+      const [locked] = await tx.$queryRaw<{ status: OrderStatus }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`;
+      if (!locked) throw notFound('Order');
+      if (!canTransition(locked.status, 'RTO')) throw badRequest('Only shipped orders can be marked as returned to origin');
+      const o = await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
+      for (const i of [...o.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
+        await this.inventory.apply(tx, { variantId: i.variantId, type: 'RETURN_RESTOCK', onHandDelta: i.quantity, reservedDelta: 0, orderId, reference: o.number, reason: 'RTO: parcel returned undelivered', actorId: actor.id });
+      }
+      const now = new Date();
+      await tx.order.update({ where: { id: orderId }, data: { status: 'RTO', rtoAt: now } });
+      const s = await tx.shipment.findUnique({ where: { orderId } });
+      if (s) {
+        await tx.shipment.update({ where: { id: s.id }, data: { status: 'RTO' } });
+        await tx.shipmentEvent.create({ data: { shipmentId: s.id, status: 'RTO', description: note ?? 'Returned to origin', occurredAt: now } });
+      }
+      if (o.paymentMethod === 'COD') {
+        await tx.payment.updateMany({ where: { orderId, status: 'CREATED' }, data: { status: 'FAILED', failureReason: 'COD parcel not accepted (RTO)' } });
+        await this.cod.recordRto(tx, o.customerPhone);
+      }
+      await this.addEvent(tx, orderId, 'RTO', note ?? (o.paymentMethod === 'COD' ? 'COD parcel returned undelivered' : 'Prepaid parcel returned undelivered; refund pending'), actor);
     });
     return this.detail({ id: orderId });
   }
@@ -401,6 +523,7 @@ export class OrdersService implements OnModuleInit {
       await tx.order.update({ where: { id: orderId }, data: { status: 'SHIPPED' } });
       await this.addEvent(tx, orderId, 'SHIPPED', booking.trackingNumber ? `AWB ${booking.trackingNumber}` : null, actor);
     });
+    void this.notify(orderId, 'shipped');
     return this.detail({ id: orderId });
   }
 
@@ -438,11 +561,12 @@ export class OrdersService implements OnModuleInit {
 
   // ------------------------------------------------------------------ returns
 
-  async requestReturn(userId: string, input: { orderId: string; reason: string; comments?: string; items: { orderItemId: string; quantity: number }[] }) {
-    const order = await this.prisma.order.findFirst({ where: { OR: [{ id: input.orderId }, { number: input.orderId }], userId }, include: { items: true, returnRequests: { include: { items: true } } } });
+  async requestReturn(userId: string, input: { orderId: string; type: 'RETURN' | 'EXCHANGE'; reason: string; comments?: string; items: { orderItemId: string; quantity: number; exchangeVariantId?: string }[] }) {
+    const order = await this.prisma.order.findFirst({ where: { OR: [{ id: input.orderId }, { number: input.orderId }], userId }, include: { items: { include: { variant: true } }, returnRequests: { include: { items: true } } } });
     if (!order) throw notFound('Order');
     if (order.status !== 'DELIVERED' || !order.deliveredAt) throw badRequest('Returns can be requested after delivery');
     if (Date.now() - order.deliveredAt.getTime() > RETURN_WINDOW_DAYS * 86400_000) throw badRequest(`Returns are accepted within ${RETURN_WINDOW_DAYS} days of delivery`);
+    if (order.exchangeForOrderId && input.type === 'EXCHANGE') throw badRequest('A replacement item can be returned for a refund, but not exchanged again');
     const pending = new Map<string, number>();
     for (const r of order.returnRequests.filter((x) => ['REQUESTED', 'APPROVED', 'RECEIVED'].includes(x.status))) for (const i of r.items) pending.set(i.orderItemId, (pending.get(i.orderItemId) ?? 0) + i.quantity);
     let refund = 0;
@@ -452,10 +576,22 @@ export class OrdersService implements OnModuleInit {
       const left = oi.quantity - oi.returnedQuantity - (pending.get(oi.id) ?? 0);
       if (ri.quantity > left) throw badRequest(`Only ${left} of ${oi.productName} can be returned`);
       refund += Math.floor((decToPaise(oi.lineTotal) * ri.quantity) / oi.quantity);
+      if (input.type === 'EXCHANGE') {
+        // Exchanges are a size/colour swap of the same product at the same price: no money moves.
+        const target = await this.prisma.productVariant.findUnique({ where: { id: ri.exchangeVariantId! }, include: { inventory: true } });
+        if (!target || !target.isActive || target.productId !== oi.productId) throw badRequest(`Choose another size or colour of ${oi.productName}`);
+        if (target.id === oi.variantId) throw badRequest('Pick a different size or colour to exchange for');
+        if (decToPaise(target.price) !== decToPaise(oi.variant.price)) throw badRequest(`${target.color} / ${target.size} has a different price; return for a refund and reorder instead`);
+        const avail = (target.inventory?.onHand ?? 0) - (target.inventory?.reserved ?? 0);
+        if (avail < ri.quantity) throw outOfStock(`${target.color} / ${target.size} is out of stock. Return for a refund instead.`, { available: avail });
+      }
     }
     const r = await this.prisma.returnRequest.create({
-      data: { orderId: order.id, userId, reason: input.reason, comments: input.comments, refundAmount: paiseToDec(refund), items: { create: input.items.map((i) => ({ orderItemId: i.orderItemId, quantity: i.quantity })) } },
-      include: { items: { include: { orderItem: true } } },
+      data: {
+        orderId: order.id, userId, type: input.type, reason: input.reason, comments: input.comments, refundAmount: paiseToDec(input.type === 'EXCHANGE' ? 0 : refund),
+        items: { create: input.items.map((i) => ({ orderItemId: i.orderItemId, quantity: i.quantity, exchangeVariantId: input.type === 'EXCHANGE' ? i.exchangeVariantId : null })) },
+      },
+      include: returnInclude,
     });
     return { r, number: order.number };
   }
@@ -465,6 +601,7 @@ export class OrdersService implements OnModuleInit {
     if (!r) throw notFound('Return request');
     const allowed: Record<string, string[]> = { APPROVE: ['REQUESTED'], REJECT: ['REQUESTED', 'APPROVED'], RECEIVE: ['APPROVED'], REFUND: ['RECEIVED'] };
     if (!allowed[action]!.includes(r.status)) throw badRequest(`Cannot ${action.toLowerCase()} a return that is ${r.status.toLowerCase()}`);
+    if (action === 'REFUND' && r.type === 'EXCHANGE' && r.replacementOrderId) throw badRequest('This exchange was fulfilled with a replacement order; nothing to refund');
     if (action === 'APPROVE' || action === 'REJECT') {
       await this.prisma.returnRequest.update({ where: { id: r.id }, data: { status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED', decisionNote: note } });
     } else if (action === 'RECEIVE') {
@@ -473,33 +610,124 @@ export class OrdersService implements OnModuleInit {
           await tx.orderItem.update({ where: { id: i.orderItemId }, data: { returnedQuantity: { increment: i.quantity } } });
           if (restock) await this.inventory.apply(tx, { variantId: i.orderItem.variantId, type: 'RETURN_RESTOCK', onHandDelta: i.quantity, reservedDelta: 0, orderId: r.orderId, reference: r.order.number, reason: `Return ${r.id}`, actorId: actor.id });
         }
-        await tx.returnRequest.update({ where: { id: r.id }, data: { status: 'RECEIVED', decisionNote: note ?? (restock ? 'Received and restocked' : 'Received; not restocked (damaged)') } });
+        let replacementOrderId: string | null = null;
+        if (r.type === 'EXCHANGE') replacementOrderId = await this.createReplacementOrder(tx, r, actor);
+        await tx.returnRequest.update({
+          where: { id: r.id },
+          data: { status: r.type === 'EXCHANGE' ? 'EXCHANGED' : 'RECEIVED', replacementOrderId, decisionNote: note ?? (restock ? 'Received and restocked' : 'Received; not restocked (damaged)') },
+        });
         const items = await tx.orderItem.findMany({ where: { orderId: r.orderId } });
         if (items.every((x) => x.returnedQuantity >= x.quantity)) {
           await tx.order.update({ where: { id: r.orderId }, data: { status: 'RETURNED' } });
-          await this.addEvent(tx, r.orderId, 'RETURNED', 'All items returned', actor);
+          await this.addEvent(tx, r.orderId, 'RETURNED', r.type === 'EXCHANGE' ? 'All items exchanged' : 'All items returned', actor);
         }
       });
     } else {
+      // Refund value is computed server-side from the order snapshot; exchanges never reach here with a replacement.
+      if (r.type === 'EXCHANGE') {
+        const value = r.items.reduce((s, i) => s + Math.floor((decToPaise(i.orderItem.lineTotal) * i.quantity) / i.orderItem.quantity), 0);
+        await this.prisma.returnRequest.update({ where: { id: r.id }, data: { refundAmount: paiseToDec(value) } });
+        r.refundAmount = paiseToDec(value);
+      }
       await this.refund(r.orderId, decToNum(r.refundAmount), `Return ${r.id}`, actor, r.id);
       await this.prisma.returnRequest.update({ where: { id: r.id }, data: { status: 'REFUNDED' } });
     }
     await this.audit.log({ actorId: actor.id, action: `return.${action.toLowerCase()}`, entity: 'ReturnRequest', entityId: r.id, after: { note, restock } });
-    const fresh = await this.prisma.returnRequest.findUniqueOrThrow({ where: { id: r.id }, include: { items: { include: { orderItem: true } } } });
+    const fresh = await this.prisma.returnRequest.findUniqueOrThrow({ where: { id: r.id }, include: returnInclude });
     return { r: fresh, number: r.order.number };
   }
 
+  /**
+   * Exchange fulfilment: a zero-value replacement order for the requested
+   * variants, reserved like any order and shipped through the normal flow. If the
+   * new size sold out meanwhile the whole receive step rolls back and staff can
+   * refund instead.
+   */
+  private async createReplacementOrder(tx: Tx, r: { id: string; orderId: string; items: { quantity: number; exchangeVariantId: string | null; orderItem: { hsnCode: string; unitMrp: Prisma.Decimal; unitPrice: Prisma.Decimal } }[]; order: { number: string; userId: string | null; customerName: string; customerEmail: string; customerPhone: string; shippingAddress: Prisma.JsonValue } }, actor: Actor) {
+    const number = await this.newNumber(tx);
+    const variants = await tx.productVariant.findMany({ where: { id: { in: r.items.map((i) => i.exchangeVariantId!) } }, include: { product: { include: { images: { orderBy: { sortOrder: 'asc' }, take: 1 } } } } });
+    const byId = new Map(variants.map((v) => [v.id, v]));
+    const order = await tx.order.create({
+      data: {
+        number, userId: r.order.userId, customerName: r.order.customerName, customerEmail: r.order.customerEmail, customerPhone: r.order.customerPhone,
+        status: 'CONFIRMED', confirmedAt: new Date(), paymentMethod: 'ONLINE', shippingAddress: r.order.shippingAddress as Prisma.InputJsonValue,
+        idempotencyKey: `exchange:${r.id}`, exchangeForOrderId: r.orderId,
+        mrpTotal: 0, subtotal: 0, grandTotal: 0, taxTotal: 0,
+        items: {
+          create: r.items.map((i) => {
+            const v = byId.get(i.exchangeVariantId!)!;
+            return {
+              variantId: v.id, productId: v.productId, productName: v.product.name, productSlug: v.product.slug, sku: v.sku, color: v.color, size: v.size,
+              imageUrl: v.product.images[0]?.thumbUrl ?? null, hsnCode: i.orderItem.hsnCode, quantity: i.quantity, unitMrp: i.orderItem.unitMrp, unitPrice: i.orderItem.unitPrice,
+              discount: paiseToDec(decToPaise(i.orderItem.unitPrice) * i.quantity), taxRate: new Prisma.Decimal(0), taxAmount: 0, lineTotal: 0,
+            };
+          }),
+        },
+      },
+    });
+    await this.inventory.reserveMany(tx, r.items.map((i) => ({ variantId: i.exchangeVariantId!, quantity: i.quantity })), order.id, number);
+    await tx.payment.create({ data: { orderId: order.id, provider: 'exchange', method: 'ONLINE', status: 'CAPTURED', amount: 0 } });
+    await this.addEvent(tx, order.id, 'CONFIRMED', `Replacement for exchange on order ${r.order.number}`, actor);
+    return order.id;
+  }
+
+  // ------------------------------------------------------------------ messaging
+
   private async notifyConfirmed(orderId: string) {
+    await this.notify(orderId, 'confirmed');
+  }
+
+  /** Order updates by WhatsApp (utility template) + email. Never blocks or fails the business flow. */
+  private async notify(orderId: string, kind: 'confirmed' | 'shipped' | 'delivered') {
     try {
-      const o = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
-      const lines = o.items.map((i) => `• ${i.productName} (${i.color}/${i.size}) × ${i.quantity}`).join('\n');
-      await this.mail.send({
-        to: o.customerEmail, userId: o.userId ?? undefined, template: 'order-confirmed', subject: `Your VYRA order ${o.number} is confirmed`,
-        text: `Hi ${o.customerName},\n\nThanks for shopping with VYRA! Order ${o.number} is confirmed.\n\n${lines}\n\nTotal: ₹${decToNum(o.grandTotal)}\nTrack it: ${this.env.STOREFRONT_URL}/account/orders/${o.number}`,
-      });
+      const o = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true, shipment: true } });
+      const url = `${this.env.STOREFRONT_URL}/account/orders/${o.number}`;
+      if (kind === 'confirmed') {
+        await this.messaging.whatsapp(o.customerPhone, WA_TEMPLATES.orderConfirmed, [o.customerName.split(' ')[0] ?? o.customerName, o.number, `₹${decToNum(o.grandTotal)}`]);
+        const lines = o.items.map((i) => `• ${i.productName} (${i.color}/${i.size}) × ${i.quantity}`).join('\n');
+        await this.mail.send({
+          to: o.customerEmail, userId: o.userId ?? undefined, template: 'order-confirmed', subject: `Your VYRA order ${o.number} is confirmed`,
+          text: `Hi ${o.customerName},\n\nThanks for shopping with VYRA! Order ${o.number} is confirmed.\n\n${lines}\n\nTotal: ₹${decToNum(o.grandTotal)}\nTrack it: ${url}`,
+        });
+      } else if (kind === 'shipped') {
+        await this.messaging.whatsapp(o.customerPhone, WA_TEMPLATES.orderShipped, [o.number, o.shipment?.courierName ?? 'our courier partner', o.shipment?.trackingUrl ?? url]);
+        await this.mail.send({ to: o.customerEmail, userId: o.userId ?? undefined, template: 'order-shipped', subject: `Order ${o.number} is on its way`, text: `Your order ${o.number} has shipped${o.shipment?.trackingNumber ? ` (AWB ${o.shipment.trackingNumber})` : ''}.\nTrack: ${o.shipment?.trackingUrl ?? url}` });
+      } else {
+        await this.messaging.whatsapp(o.customerPhone, WA_TEMPLATES.orderDelivered, [o.number]);
+      }
     } catch (e) {
-      this.logger.warn(`Confirmation email failed: ${(e as Error).message}`);
+      this.logger.warn(`Notification (${kind}) failed: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * Abandoned bag reminders, at most one per bag change, only to customers who
+   * opted in (WhatsApp policy + respect). Bags idle 3–48h are eligible.
+   */
+  async remindAbandonedCarts() {
+    const after = this.env.ABANDONED_CART_AFTER_HOURS;
+    const carts = await this.prisma.$queryRaw<{ id: string; userId: string; lastTouch: Date }[]>`
+      SELECT c.id, c."userId", max(ci."updatedAt") AS "lastTouch"
+        FROM carts c JOIN cart_items ci ON ci."cartId" = c.id AND NOT ci."savedForLater"
+        JOIN customer_profiles cp ON cp."userId" = c."userId" AND cp."marketingOptIn"
+       WHERE c."userId" IS NOT NULL
+       GROUP BY c.id, c."userId", c."reminderSentAt"
+      HAVING max(ci."updatedAt") < now() - make_interval(hours => ${after}::int)
+         AND max(ci."updatedAt") > now() - interval '48 hours'
+         AND (c."reminderSentAt" IS NULL OR c."reminderSentAt" < max(ci."updatedAt"))
+       LIMIT 200`;
+    let sent = 0;
+    for (const c of carts) {
+      const user = await this.prisma.user.findUnique({ where: { id: c.userId } });
+      const item = await this.prisma.cartItem.findFirst({ where: { cartId: c.id, savedForLater: false }, include: { variant: { include: { product: { select: { name: true } } } } }, orderBy: { updatedAt: 'desc' } });
+      if (!user || !item) continue;
+      const first = user.name.split(' ')[0] ?? user.name;
+      await this.messaging.whatsapp(user.phone, WA_TEMPLATES.cartReminder, [first, item.variant.product.name, `${this.env.STOREFRONT_URL}/cart`]);
+      if (user.email) await this.mail.send({ to: user.email, userId: user.id, template: 'cart-reminder', subject: 'Still thinking it over?', text: `Hi ${first}, your ${item.variant.product.name} is waiting in your VYRA bag. Stock moves fast: ${this.env.STOREFRONT_URL}/cart\n\nUnsubscribe anytime from your account settings.` });
+      await this.prisma.cart.update({ where: { id: c.id }, data: { reminderSentAt: new Date() } });
+      sent++;
+    }
+    return { sent };
   }
 
   assertOwner(order: { userId: string | null }, userId: string) {

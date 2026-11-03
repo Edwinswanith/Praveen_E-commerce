@@ -109,3 +109,24 @@ describe('Catalog, barcodes and inventory (integration)', () => {
     expect(r.body.data.variants.filter((v: { isActive: boolean }) => v.isActive)).toHaveLength(2);
   });
 });
+
+describe('Ledger reconciliation (integration)', () => {
+  it('reports consistency and detects stock edited outside the ledger', async () => {
+    const { bootApp: boot, createStaff: staff } = await import('./helpers');
+    const { app, prisma } = await boot();
+    try {
+      const inv = await staff(app, 'INVENTORY_MANAGER');
+      const cat = await prisma.category.create({ data: { name: 'x', slug: 'x', code: 'XXX' } });
+      const { productInput } = await import('./helpers');
+      const p = (await inv.post('/api/v1/admin/products').set({ 'X-Requested-With': 'vyra' }).send(productInput(cat.id)).expect(201)).body.data;
+      await inv.post('/api/v1/admin/inventory/movements').set({ 'X-Requested-With': 'vyra' }).send({ variantId: p.variants[0].id, type: 'STOCK_IN', quantity: 4, reason: 'test' }).expect(201);
+      expect((await inv.get('/api/v1/admin/inventory/reconcile').expect(200)).body.data).toMatchObject({ consistent: true, checkedVariants: 3 });
+      await prisma.$executeRaw`UPDATE inventory SET "onHand" = 99 WHERE "variantId" = ${p.variants[0].id}`; // simulate a rogue edit
+      const r = (await inv.get('/api/v1/admin/inventory/reconcile').expect(200)).body.data;
+      expect(r.consistent).toBe(false);
+      expect(r.drift[0]).toMatchObject({ onHand: 99, ledgerOnHand: 4 });
+    } finally {
+      await app.close();
+    }
+  });
+});

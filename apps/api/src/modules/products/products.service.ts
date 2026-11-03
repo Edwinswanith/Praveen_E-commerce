@@ -122,6 +122,21 @@ export class ProductsService {
     return p;
   }
 
+  /** Aggregates review fit votes into advice ("runs small: consider one size up"). */
+  async fitSummary(productId: string) {
+    const rows = await this.prisma.review.groupBy({ by: ['fit'], where: { productId, isPublished: true, fit: { not: null } }, _count: true });
+    const n = (f: string) => rows.find((r) => r.fit === f)?._count ?? 0;
+    const runsSmall = n('RUNS_SMALL'), trueToSize = n('TRUE_TO_SIZE'), runsLarge = n('RUNS_LARGE');
+    const total = runsSmall + trueToSize + runsLarge;
+    let advice: string | null = null;
+    if (total >= 3) {
+      if (runsSmall / total >= 0.4) advice = `${Math.round((runsSmall / total) * 100)}% of buyers say it runs small. Consider one size up.`;
+      else if (runsLarge / total >= 0.4) advice = `${Math.round((runsLarge / total) * 100)}% of buyers say it runs large. Consider one size down.`;
+      else advice = `${Math.round((trueToSize / total) * 100)}% of buyers say it fits true to size.`;
+    }
+    return { runsSmall, trueToSize, runsLarge, total, advice };
+  }
+
   private async toDetail(p: DetailProduct): Promise<ProductDetailDto> {
     const variants = p.variants.filter((v) => v.isActive).map(toVariantDto);
     const card = toProductCard({ ...p, category: { slug: p.category.slug }, images: p.images.slice(0, 2), variants: p.variants.filter((v) => v.isActive) });
@@ -134,7 +149,7 @@ export class ProductsService {
       sizeChart: (p.sizeChart as Record<string, Record<string, string>> | null) ?? null,
       images: p.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt || p.name, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height })),
       videos: p.videos.map((v) => ({ id: v.id, url: v.url, posterUrl: v.posterUrl })),
-      variants, seoTitle: p.seoTitle, seoDescription: p.seoDescription, createdAt: p.createdAt.toISOString(),
+      variants, fit: await this.fitSummary(p.id), seoTitle: p.seoTitle, seoDescription: p.seoDescription, createdAt: p.createdAt.toISOString(),
     };
   }
 

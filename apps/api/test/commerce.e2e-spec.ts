@@ -45,9 +45,10 @@ describe('End-to-end commerce flow (integration)', () => {
     const key = randomUUID();
     const co = (await shopper.post('/api/v1/checkout').set(H).send({ address, paymentMethod: 'ONLINE', shippingMethod: 'STANDARD', idempotencyKey: key }).expect(201)).body.data;
     expect(co.order.status).toBe('PENDING_PAYMENT');
-    expect(co.order.grandTotal).toBe(1438.2);
+    expect(co.order.prepaidDiscount).toBe(71.91); // 5% for paying online
+    expect(co.order.grandTotal).toBe(1366.29);
     expect(co.payment.provider).toBe('mock');
-    expect(co.payment.amount).toBe(143820);
+    expect(co.payment.amount).toBe(136629);
     // Same idempotency key → same order, no second reservation.
     const replay = (await shopper.post('/api/v1/checkout').set(H).send({ address, paymentMethod: 'ONLINE', idempotencyKey: key }).expect(201)).body.data;
     expect(replay.order.id).toBe(co.order.id);
@@ -87,11 +88,11 @@ describe('End-to-end commerce flow (integration)', () => {
 
     // Return → receive (restock) → refund via provider.
     const ret = (await shopper.post('/api/v1/returns').set(H).send({ orderId: co.order.id, reason: 'SIZE_ISSUE', items: [{ orderItemId: mine.items[0].id, quantity: 1 }] }).expect(201)).body.data;
-    expect(ret.refundAmount).toBe(719.1);
+    expect(ret.refundAmount).toBe(683.14);
     for (const action of ['APPROVE', 'RECEIVE', 'REFUND']) await admin.post(`/api/v1/admin/returns/${ret.id}/decision`).set(H).send({ action, restock: true }).expect(200);
     expect((await prisma.inventory.findUniqueOrThrow({ where: { variantId } })).onHand).toBe(2);
     const refund = await prisma.refund.findFirstOrThrow({ where: { orderId: co.order.id } });
-    expect(Number(refund.amount)).toBe(719.1);
+    expect(Number(refund.amount)).toBe(683.14);
     expect(refund.status).toBe('PROCESSED');
   });
 

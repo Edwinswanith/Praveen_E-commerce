@@ -13,6 +13,7 @@ import { CurrentUser, RequirePermissions, StaffOnly, type AuthUser } from '../au
 import { toCouponDto } from '../coupons/coupons.service';
 import { toOrderSummary } from '../orders/order.mappers';
 import { toAddressDto } from '../users/users.controller';
+import { toCodRiskDto } from '../cod/cod.service';
 
 type CouponInput = z.infer<typeof couponSchema>;
 function couponData(c: Partial<CouponInput>) {
@@ -90,16 +91,19 @@ export class AdminCustomersController {
   async detail(@Param('id') id: string) {
     const u = await this.prisma.user.findFirst({ where: { id, role: { name: 'CUSTOMER' } }, include: { customerProfile: true, addresses: { where: { deletedAt: null } } } });
     if (!u) throw notFound('Customer');
-    const [orders, agg, returns, searches] = await Promise.all([
+    const [orders, agg, returns, searches, rto, risk] = await Promise.all([
       this.prisma.order.findMany({ where: { userId: id }, include: { items: true, payments: true }, orderBy: { createdAt: 'desc' }, take: 50 }),
       this.prisma.order.aggregate({ where: { userId: id, status: { notIn: ['PENDING_PAYMENT', 'CANCELLED'] } }, _sum: { grandTotal: true }, _count: true }),
       this.prisma.returnRequest.count({ where: { userId: id } }),
       this.prisma.searchHistory.findMany({ where: { userId: id }, orderBy: { createdAt: 'desc' }, take: 10, select: { query: true, mode: true, createdAt: true } }),
+      this.prisma.order.count({ where: { userId: id, status: 'RTO' } }),
+      u.phone ? this.prisma.codRisk.findUnique({ where: { phone: u.phone } }) : null,
     ]);
     return {
       id: u.id, name: u.name, email: u.email, phone: u.phone, emailVerified: !!u.emailVerifiedAt, isActive: u.isActive, createdAt: u.createdAt.toISOString(), lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
       notes: u.customerProfile?.notes ?? null, addresses: u.addresses.map(toAddressDto), orders: orders.map(toOrderSummary),
-      stats: { orders: agg._count, totalSpent: decToNum(agg._sum.grandTotal ?? 0), returns }, recentSearches: searches,
+      stats: { orders: agg._count, totalSpent: decToNum(agg._sum.grandTotal ?? 0), returns, rto }, codRisk: risk ? toCodRiskDto(risk) : null,
+      recentSearches: searches.map((s) => ({ ...s, createdAt: s.createdAt.toISOString() })),
     };
   }
 

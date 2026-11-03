@@ -64,6 +64,24 @@ const envSchema = z.object({
   SMTP_PASSWORD: z.string().optional(),
   MAIL_FROM: z.string().default('VYRA <no-reply@vyra.local>'),
 
+  /** SMS for OTPs. console = log only (dev; refused in production). */
+  SMS_PROVIDER: z.enum(['console', 'msg91']).default('console'),
+  MSG91_AUTH_KEY: z.string().optional(),
+  MSG91_OTP_TEMPLATE_ID: z.string().optional(),
+  /** WhatsApp Business (Meta Cloud API) for order updates + cart reminders. Templates must be approved in Meta. */
+  WHATSAPP_PROVIDER: z.enum(['none', 'meta']).default('none'),
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_TEMPLATE_LANG: z.string().default('en'),
+  OTP_PEPPER: z.string().min(16).optional(),
+
+  COD_RTO_BLOCK_THRESHOLD: z.coerce.number().int().min(1).default(2),
+  COD_CONFIRM_WINDOW_HOURS: z.coerce.number().int().min(1).default(24),
+  /** Rupees. Percent 0 disables the prepaid incentive. */
+  PREPAID_DISCOUNT_PERCENT: z.coerce.number().min(0).max(20).default(5),
+  PREPAID_DISCOUNT_MAX: z.coerce.number().min(0).default(100),
+  ABANDONED_CART_AFTER_HOURS: z.coerce.number().min(1).default(3),
+
   SELLER_NAME: z.string().default('VYRA Fashion (update SELLER_NAME)'),
   SELLER_GSTIN: z.string().optional(),
   SELLER_ADDRESS: z.string().default('Registered address pending configuration'),
@@ -88,6 +106,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     if (parsed.data.PAYMENT_PROVIDER === 'mock') throw new Error('PAYMENT_PROVIDER=mock is forbidden in production');
     if (parsed.data.EMBEDDING_PROVIDER === 'local') console.warn('[env] EMBEDDING_PROVIDER=local in production: search quality will be lexical only');
     if (!parsed.data.COOKIE_SECURE) throw new Error('COOKIE_SECURE must be true in production');
+    if (parsed.data.SMS_PROVIDER === 'console') console.warn('[env] SMS_PROVIDER=console in production: OTP login and COD confirmation cannot reach customers');
+    if (!parsed.data.OTP_PEPPER) throw new Error('OTP_PEPPER is required in production');
   }
   if (source === process.env) cached = parsed.data;
   return parsed.data;

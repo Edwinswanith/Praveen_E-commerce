@@ -53,6 +53,16 @@ export class MediaService {
     return { key, url, thumbUrl, ...img };
   }
 
+  /** Customer review photos: same sanitising pipeline, stored under reviews/. */
+  async storeReviewImage(reviewId: string, input: Buffer) {
+    const img = await this.processImage(input);
+    const id = randomUUID();
+    const key = `reviews/${reviewId}/${id}.webp`;
+    const url = await this.storage.put(key, img.buffer, 'image/webp');
+    const thumbUrl = await this.storage.put(`reviews/${reviewId}/${id}_thumb.webp`, img.thumb, 'image/webp');
+    return { key, url, thumbUrl };
+  }
+
   async storeProductVideo(productId: string, input: Buffer) {
     if (input.length > MAX_VIDEO_BYTES) throw badRequest('Videos must be 50 MB or smaller');
     const mime = sniffVideo(input);

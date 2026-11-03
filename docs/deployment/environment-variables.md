@@ -25,7 +25,13 @@ Validated at boot by `apps/api/src/config/env.ts`, which refuses to start on inv
 | `EMBEDDING_PROVIDER` | | local | `gemini` needs `GEMINI_API_KEY`; `GEMINI_EMBEDDING_MODEL` (gemini-embedding-2), `EMBEDDING_DIMENSIONS` must stay 768 unless migrated |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `MAIL_FROM` | | – | without SMTP, emails are recorded as `skipped` |
 | `SELLER_NAME` / `SELLER_GSTIN` / `SELLER_ADDRESS` / `SELLER_STATE` | prod | placeholders | printed on GST invoices; state decides CGST+SGST vs IGST |
-| `SENTRY_DSN`, `LOG_LEVEL` | | – / info | |
+| `SMS_PROVIDER` | prod | console | `msg91` needs `MSG91_AUTH_KEY` + `MSG91_OTP_TEMPLATE_ID` (DLT-registered). `console` logs OTPs and echoes them to the client **in development only** |
+| `WHATSAPP_PROVIDER` | | none | `meta` needs `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`; templates listed in `.env.example` must be approved in Meta Business Manager |
+| `OTP_PEPPER` | prod | (JWT secret) | 32+ random chars, hashes OTPs |
+| `COD_RTO_BLOCK_THRESHOLD` / `COD_CONFIRM_WINDOW_HOURS` | | 2 / 24 | COD refusals before auto-block / hours before unconfirmed COD auto-cancels |
+| `PREPAID_DISCOUNT_PERCENT` / `PREPAID_DISCOUNT_MAX` | | 5 / 100 | online-payment incentive (₹ cap); 0 disables |
+| `ABANDONED_CART_AFTER_HOURS` | | 3 | reminders only go to opted-in customers, once per bag change |
+| `SENTRY_DSN`, `LOG_LEVEL` | | – / info | 5xx errors reported without cookies/auth/bodies |
 | `SEED_STAFF_PASSWORD`, `SEED_FORCE` | seed only | | |
 | `NODE_USE_ENV_PROXY=1` | behind a proxy | | makes Node fetch honour `HTTPS_PROXY` |
 

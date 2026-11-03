@@ -52,6 +52,11 @@ export class InventoryController {
     return paginated(items, total, q.page, q.pageSize);
   }
 
+  @RequirePermissions('inventory:read') @Get('reconcile')
+  reconcile() {
+    return this.inventory.reconcile();
+  }
+
   @RequirePermissions('inventory:read') @Get('export')
   async export(@Query('format') format: string | undefined, @Res({ passthrough: true }) res: Response) {
     const { items } = await this.inventory.rows({}, 1, 100_000);

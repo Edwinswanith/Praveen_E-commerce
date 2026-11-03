@@ -30,3 +30,47 @@ jobs:
       - run: pnpm test
       - run: pnpm build
         env: { NODE_ENV: production }
+
+  e2e:
+    needs: verify
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: vyra, POSTGRES_PASSWORD: vyra, POSTGRES_DB: vyra }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U vyra" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql://vyra:vyra@localhost:5432/vyra?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-only-secret-ci-only-secret-0123456789
+      NODE_ENV: development
+      PAYMENT_PROVIDER: mock
+      EMBEDDING_PROVIDER: local
+      SMS_PROVIDER: console
+      SEED_STAFF_PASSWORD: VyraStaff@2026
+      API_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm --filter @vyra/shared build
+      - run: pnpm --filter @vyra/api exec prisma migrate deploy
+      - run: pnpm --filter @vyra/api build && pnpm db:seed
+      - run: NODE_ENV=production pnpm --filter @vyra/storefront build && NODE_ENV=production pnpm --filter @vyra/admin build
+      - name: Start apps
+        run: |
+          (cd apps/api && node --env-file-if-exists=.env dist/src/main.js &) 
+          (cd apps/storefront && NODE_ENV=production npx next start -p 3000 &)
+          (cd apps/admin && NODE_ENV=production npx next start -p 3001 &)
+          npx wait-on -t 120000 http://localhost:4000/api/v1/health http://localhost:3000 http://localhost:3001/login
+      - run: pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: playwright-report, path: playwright-report }

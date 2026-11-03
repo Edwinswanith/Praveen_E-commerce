@@ -115,3 +115,40 @@ describe('validation schemas', () => {
     expect(checkoutSchema.safeParse({ paymentMethod: 'COD', idempotencyKey: crypto.randomUUID() }).success).toBe(false);
   });
 });
+
+describe('prepaid discount & COD', () => {
+  const line = (price: number, qty = 1) => ({ variantId: 'v' + price, categoryIds: ['c1'], unitPrice: price, unitMrp: price * 2, quantity: qty });
+
+  it('gives online payers 5% (capped) and allocates it into taxable values', () => {
+    const r = priceCart({ lines: [line(100000), line(50000)], paymentMethod: 'ONLINE' });
+    expect(r.prepaidDiscount).toBe(7500);
+    expect(r.grandTotal).toBe(150000 - 7500);
+    expect(r.lines.reduce((s, l) => s + l.discountShare, 0)).toBe(7500);
+    expect(priceCart({ lines: [line(400000)], paymentMethod: 'ONLINE' }).prepaidDiscount).toBe(10000); // cap ₹100
+    expect(priceCart({ lines: [line(100000)], paymentMethod: 'COD' }).prepaidDiscount).toBe(0);
+    expect(priceCart({ lines: [line(100000)], paymentMethod: 'ONLINE', prepaid: { percent: 0, max: 0 } }).prepaidDiscount).toBe(0);
+  });
+
+  it('stacks after the coupon and never costs free shipping', () => {
+    const coupon = { code: 'X', type: 'FIXED' as const, value: 10000 };
+    const r = priceCart({ lines: [line(110000)], coupon, paymentMethod: 'ONLINE' });
+    expect(r.couponDiscount).toBe(10000);
+    expect(r.prepaidDiscount).toBe(5000); // 5% of 1000
+    expect(r.shippingFee).toBe(0); // 1000 after coupon qualifies even though 950 after prepaid
+  });
+
+  it('lets shipped parcels go RTO but not delivered ones', () => {
+    expect(canTransition('SHIPPED', 'RTO')).toBe(true);
+    expect(canTransition('OUT_FOR_DELIVERY', 'RTO')).toBe(true);
+    expect(canTransition('DELIVERED', 'RTO')).toBe(false);
+  });
+});
+
+describe('phone schema', () => {
+  it('normalises Indian mobile formats', async () => {
+    const { indianMobileSchema } = await import('./index');
+    expect(indianMobileSchema.parse('+91 98765-43210')).toBe('9876543210');
+    expect(indianMobileSchema.parse('09876543210')).toBe('9876543210');
+    expect(indianMobileSchema.safeParse('1234567890').success).toBe(false);
+  });
+});

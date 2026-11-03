@@ -30,9 +30,12 @@
 
 ## Backups & restore
 ```bash
-pg_dump "$DATABASE_URL" -Fc -f vyra-$(date +%F).dump
-pg_restore -d "$RESTORE_URL" --no-owner vyra-YYYY-MM-DD.dump
+# daily (cron / platform scheduler); uploads to S3/R2 when BACKUP_S3_URI is set
+DATABASE_URL=... BACKUP_S3_URI=s3://vyra-backups/db infrastructure/deployment/backup.sh
+# monthly restore drill: restores into a scratch DB and checks stock consistency
+ADMIN_DATABASE_URL=postgresql://.../postgres infrastructure/deployment/restore-check.sh backups/vyra-<stamp>.dump
 ```
+Also check `GET /api/v1/admin/inventory/reconcile` weekly (or alert on it): it proves stock equals the ledger for every variant.
 Media lives in object storage. Enable bucket versioning.
 
 ## Scaling notes

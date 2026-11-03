@@ -4,8 +4,9 @@ import type { Permission } from '../roles/permissions';
 
 export interface AuthUser {
   id: string;
-  email: string;
+  email: string | null;
   name: string;
+  phone: string | null;
   role: RoleName;
   audience: 'customer' | 'staff';
   permissions: Permission[];

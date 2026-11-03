@@ -4,7 +4,7 @@
  * Dates are ISO-8601 strings.
  */
 import type {
-  BarcodeSymbology, Gender, InventoryMovementType, OrderStatus, PaymentMethod, PaymentStatus,
+  BarcodeSymbology, CodConfirmation, FitFeedback, Gender, ReturnType, InventoryMovementType, OrderStatus, PaymentMethod, PaymentStatus,
   ProductStatus, RefundStatus, ReturnStatus, RoleName, ShipmentStatus,
 } from './enums';
 
@@ -16,9 +16,12 @@ export interface Paginated<T> { items: T[]; meta: PageMeta }
 export interface SessionUser {
   id: string;
   name: string;
-  email: string;
+  /** null for phone-only accounts */
+  email: string | null;
   phone: string | null;
   emailVerified: boolean;
+  phoneVerified: boolean;
+  marketingOptIn: boolean;
   role: RoleName;
   permissions: string[];
 }
@@ -101,9 +104,20 @@ export interface ProductDetailDto extends Omit<ProductCardDto, 'imageUrl' | 'hov
   images: ProductImageDto[];
   videos: ProductVideoDto[];
   variants: VariantDto[];
+  /** Aggregated from reviews: how the product fits. */
+  fit: FitSummaryDto;
   seoTitle: string | null;
   seoDescription: string | null;
   createdAt: string;
+}
+
+export interface FitSummaryDto {
+  runsSmall: number;
+  trueToSize: number;
+  runsLarge: number;
+  total: number;
+  /** Plain-language advice, e.g. "Most buyers say it runs small — consider one size up." null when too few reviews. */
+  advice: string | null;
 }
 
 export interface ProductFacets {
@@ -152,11 +166,17 @@ export interface CartTotalsDto {
   subtotal: number;
   productDiscount: number;
   couponDiscount: number;
+  /** Discount for paying online (0 for COD / quotes without a payment method). */
+  prepaidDiscount: number;
+  /** What the prepaid discount would be if paying online (for the "save ₹x by paying online" nudge). */
+  prepaidSavings: number;
   shippingFee: number;
   codFee: number;
   taxTotal: number;
   grandTotal: number;
   codAvailable: boolean;
+  /** Why COD is unavailable, when it is. */
+  codUnavailableReason: string | null;
   freeShippingThreshold: number;
 }
 
@@ -252,10 +272,15 @@ export interface OrderDetailDto extends OrderSummaryDto {
   subtotal: number;
   couponCode: string | null;
   couponDiscount: number;
+  prepaidDiscount: number;
   shippingFee: number;
   codFee: number;
   taxTotal: number;
   shippingMethod: 'STANDARD' | 'EXPRESS';
+  /** COD orders must be confirmed by OTP (or by staff) before they are packed. */
+  codConfirmation: CodConfirmation;
+  /** Set when this order is the replacement shipment of an exchange. */
+  exchangeForOrderNumber: string | null;
   events: OrderEventDto[];
   payments: PaymentDto[];
   refunds: RefundDto[];
@@ -263,10 +288,14 @@ export interface OrderDetailDto extends OrderSummaryDto {
   returns: ReturnRequestDto[];
   canCancel: boolean;
   canReturn: boolean;
+  /** Variants of the same products, same price, in stock: valid exchange targets per order item. */
+  exchangeOptions?: Record<string, { variantId: string; color: string; size: string; available: number }[]>;
 }
 
 export interface CheckoutResponse {
   order: OrderDetailDto;
+  /** COD: an OTP was sent to this masked phone; confirm with POST /orders/:number/confirm-cod. */
+  codOtp: null | { phoneMasked: string; expiresInSeconds: number; devCode?: string };
   /** Present for ONLINE payments: pass to the provider's checkout widget. */
   payment: null | {
     provider: 'razorpay' | 'mock';
@@ -284,16 +313,21 @@ export interface ReturnRequestDto {
   orderId: string;
   orderNumber: string;
   status: ReturnStatus;
+  type: ReturnType;
   reason: string;
   comments: string | null;
   refundAmount: number;
-  items: { orderItemId: string; name: string; sku: string; quantity: number }[];
+  replacementOrderNumber: string | null;
+  items: { orderItemId: string; name: string; sku: string; quantity: number; exchangeFor: { variantId: string; sku: string; color: string; size: string } | null }[];
   createdAt: string;
 }
 
 export interface WishlistItemDto { id: string; product: ProductCardDto; addedAt: string }
 
-export interface ReviewDto { id: string; rating: number; title: string | null; body: string | null; authorName: string; verifiedPurchase: boolean; createdAt: string }
+export interface ReviewDto {
+  id: string; rating: number; title: string | null; body: string | null; authorName: string; verifiedPurchase: boolean; createdAt: string;
+  fit: FitFeedback | null; sizePurchased: string | null; images: { id: string; url: string; thumbUrl: string }[];
+}
 
 export interface InventoryRowDto {
   variantId: string;
@@ -355,7 +389,7 @@ export interface DashboardDto {
   recentOrders: OrderSummaryDto[];
 }
 
-export interface CustomerSummaryDto { id: string; name: string; email: string; phone: string | null; orders: number; totalSpent: number; lastOrderAt: string | null; createdAt: string }
+export interface CustomerSummaryDto { id: string; name: string; email: string | null; phone: string | null; orders: number; totalSpent: number; lastOrderAt: string | null; createdAt: string }
 
 export interface CouponDto {
   id: string; code: string; description: string | null; type: 'PERCENTAGE' | 'FIXED'; value: number;
@@ -386,3 +420,69 @@ export interface AdminProductDetailDto extends Omit<ProductDetailDto, 'variants'
   categoryId: string;
   embedding: { text: boolean; images: number; status: string | null; model: string | null };
 }
+
+export interface OtpRequestResponse {
+  phoneMasked: string;
+  expiresInSeconds: number;
+  resendAfterSeconds: number;
+  /** Only in development when no SMS provider is configured. Never in production. */
+  devCode?: string;
+}
+
+export interface OtpVerifyResponse {
+  user: SessionUser;
+  isNewUser: boolean;
+}
+
+// ---------------- admin contract types (previously untyped) ----------------
+export interface SupplierDto {
+  id: string; name: string; contactName: string | null; email: string | null; phone: string | null; gstin: string | null; address: string | null;
+  isActive: boolean; createdAt: string; updatedAt: string;
+}
+
+export interface PurchaseOrderSummaryDto {
+  id: string; number: string; supplierName: string; status: 'DRAFT' | 'ORDERED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED';
+  reference: string | null; totalCost: number; itemCount: number; orderedAt: string; receivedAt: string | null;
+}
+
+export interface ScanHistoryDto {
+  id: string; code: string; mode: string; device: string; found: boolean; orderId: string | null; sku: string | null;
+  productName: string | null; color: string | null; size: string | null; actorName: string; createdAt: string;
+}
+
+export interface StaffUserDto extends SessionUser { isActive: boolean; lastLoginAt: string | null; createdAt: string }
+
+export interface AuditLogDto { id: string; action: string; entity: string; entityId: string | null; actorName: string | null; before: unknown; after: unknown; createdAt: string }
+
+export interface CustomerDetailDto {
+  id: string; name: string; email: string | null; phone: string | null; emailVerified: boolean; isActive: boolean; createdAt: string; lastLoginAt: string | null;
+  notes: string | null; addresses: AddressDto[]; orders: OrderSummaryDto[];
+  stats: { orders: number; totalSpent: number; returns: number; rto: number };
+  codRisk: CodRiskDto | null;
+  recentSearches: { query: string | null; mode: string; createdAt: string }[];
+}
+
+export interface CodRiskDto { phone: string; rtoCount: number; codBlocked: boolean; note: string | null; lastRtoAt: string | null }
+
+export interface CodSettingsDto {
+  enabled: boolean;
+  rtoBlockThreshold: number;
+  confirmWindowHours: number;
+  prepaidDiscountPercent: number;
+  prepaidDiscountMax: number;
+  blockedPincodes: { pincode: string; reason: string | null; createdAt: string }[];
+}
+
+export interface CodAnalyticsDto {
+  codOrders: number;
+  prepaidOrders: number;
+  codShare: number;
+  confirmedRate: number;
+  autoCancelled: number;
+  rtoOrders: number;
+  rtoRate: number;
+  rtoValue: number;
+  topRtoPincodes: { pincode: string; rto: number; orders: number }[];
+}
+
+export interface ProductReturnRateDto { productId: string; name: string; unitsSold: number; unitsReturned: number; returnRate: number; topReason: string | null; exchanges: number }

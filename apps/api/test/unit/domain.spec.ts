@@ -25,9 +25,9 @@ describe('Prisma enums stay in sync with @vyra/shared', () => {
   const schema = readFileSync(join(__dirname, '../../prisma/schema.prisma'), 'utf8');
   const prismaEnum = (name: string) => {
     const m = new RegExp(`enum ${name} \\{([^}]*)\\}`).exec(schema);
-    return m![1]!.split('\n').map((l) => l.trim()).filter(Boolean).sort();
+    return m![1]!.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//')).sort();
   };
-  it.each(['RoleName', 'ProductStatus', 'Gender', 'InventoryMovementType', 'OrderStatus', 'PaymentStatus', 'ShipmentStatus', 'ReturnStatus', 'RefundStatus', 'CouponType', 'ScanMode', 'EmbeddingKind'])('%s', (name) => {
+  it.each(['RoleName', 'ProductStatus', 'Gender', 'InventoryMovementType', 'OrderStatus', 'PaymentStatus', 'ShipmentStatus', 'ReturnStatus', 'RefundStatus', 'CouponType', 'ScanMode', 'EmbeddingKind', 'CodConfirmation', 'ReturnType', 'FitFeedback', 'OtpPurpose'])('%s', (name) => {
     expect(Object.values((shared as unknown as Record<string, Record<string, string>>)[name]!).sort()).toEqual(prismaEnum(name));
   });
 });

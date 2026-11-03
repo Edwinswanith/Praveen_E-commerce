@@ -6,9 +6,11 @@ import helmet from 'helmet';
 import { resolve } from 'node:path';
 import { AppModule } from './app.module';
 import { loadEnv } from './config/env';
+import { initMonitoring } from './common/monitoring/monitoring';
 
 export async function createApp() {
   const env = loadEnv();
+  initMonitoring(env.SENTRY_DSN, env.APP_VERSION, env.NODE_ENV);
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true, // webhook signatures are computed over the exact bytes
     logger: env.NODE_ENV === 'test' ? ['error'] : ['log', 'warn', 'error'],

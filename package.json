@@ -2,7 +2,9 @@
   "name": "vyra-fashion-commerce",
   "private": true,
   "packageManager": "pnpm@10.28.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "turbo run dev --parallel",
     "build": "turbo run build",
@@ -13,7 +15,8 @@
     "db:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d postgres redis",
     "db:migrate": "pnpm --filter @vyra/api prisma:migrate",
     "db:seed": "pnpm --filter @vyra/api prisma:seed",
-    "db:reset": "pnpm --filter @vyra/api prisma:reset"
+    "db:reset": "pnpm --filter @vyra/api prisma:reset",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
   },
   "devDependencies": {
     "prettier": "^3.6.2",

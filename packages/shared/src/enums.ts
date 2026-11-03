@@ -45,6 +45,7 @@ export const OrderStatus = {
   DELIVERED: 'DELIVERED',
   CANCELLED: 'CANCELLED',
   RETURNED: 'RETURNED',
+  RTO: 'RTO',
 } as const;
 export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
 
@@ -78,6 +79,7 @@ export const ReturnStatus = {
   REJECTED: 'REJECTED',
   RECEIVED: 'RECEIVED',
   REFUNDED: 'REFUNDED',
+  EXCHANGED: 'EXCHANGED',
 } as const;
 export type ReturnStatus = (typeof ReturnStatus)[keyof typeof ReturnStatus];
 
@@ -95,6 +97,18 @@ export const ScanMode = {
   RETURN: 'RETURN',
 } as const;
 export type ScanMode = (typeof ScanMode)[keyof typeof ScanMode];
+
+export const CodConfirmation = { NOT_REQUIRED: 'NOT_REQUIRED', PENDING: 'PENDING', CONFIRMED: 'CONFIRMED' } as const;
+export type CodConfirmation = (typeof CodConfirmation)[keyof typeof CodConfirmation];
+
+export const ReturnType = { RETURN: 'RETURN', EXCHANGE: 'EXCHANGE' } as const;
+export type ReturnType = (typeof ReturnType)[keyof typeof ReturnType];
+
+export const FitFeedback = { RUNS_SMALL: 'RUNS_SMALL', TRUE_TO_SIZE: 'TRUE_TO_SIZE', RUNS_LARGE: 'RUNS_LARGE' } as const;
+export type FitFeedback = (typeof FitFeedback)[keyof typeof FitFeedback];
+
+export const OtpPurpose = { LOGIN: 'LOGIN', COD_CONFIRM: 'COD_CONFIRM' } as const;
+export type OtpPurpose = (typeof OtpPurpose)[keyof typeof OtpPurpose];
 
 export const EmbeddingKind = { TEXT: 'TEXT', IMAGE: 'IMAGE' } as const;
 export type EmbeddingKind = (typeof EmbeddingKind)[keyof typeof EmbeddingKind];

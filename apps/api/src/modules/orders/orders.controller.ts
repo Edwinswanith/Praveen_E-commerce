@@ -4,7 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { z } from 'zod';
 import {
-  cancelOrderSchema, checkoutSchema, orderStatusUpdateSchema, paginationSchema, pincodeSchema, returnDecisionSchema, returnRequestSchema,
+  cancelOrderSchema, checkoutSchema, codConfirmSchema, indianMobileSchema, orderStatusUpdateSchema, paginationSchema, pincodeSchema, returnDecisionSchema, returnRequestSchema,
   shipmentCreateSchema, verifyPaymentSchema, type CheckoutInput,
 } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -16,7 +16,7 @@ import { CartService } from '../carts/cart.service';
 import { PaymentsGateway } from '../payments/payments.gateway';
 import { ShippingService } from '../shipping/shipping.service';
 import { InvoiceService } from './invoice.service';
-import { toOrderSummary, toReturnDto } from './order.mappers';
+import { loadExtras, toOrderSummary, toReturnDto } from './order.mappers';
 import { OrdersService } from './orders.service';
 
 const actorOf = (u: AuthUser) => ({ id: u.id, name: u.name });
@@ -34,8 +34,19 @@ export class CheckoutController {
   }
 
   @HttpCode(200) @Post('checkout/quote')
-  quote(@Req() req: Request, @Body(new ZodPipe(z.object({ shippingMethod: z.enum(['STANDARD', 'EXPRESS']).default('STANDARD'), paymentMethod: z.enum(['ONLINE', 'COD']).default('ONLINE'), couponCode: z.string().trim().toUpperCase().max(30).nullish() }))) b: { shippingMethod: 'STANDARD' | 'EXPRESS'; paymentMethod: 'ONLINE' | 'COD'; couponCode?: string | null }, @CurrentUser() u?: AuthUser) {
-    return this.orders.quote(this.carts.owner(req, u?.id), b, u?.email);
+  quote(@Req() req: Request, @Body(new ZodPipe(z.object({ shippingMethod: z.enum(['STANDARD', 'EXPRESS']).default('STANDARD'), paymentMethod: z.enum(['ONLINE', 'COD']).default('ONLINE'), couponCode: z.string().trim().toUpperCase().max(30).nullish(), pincode: pincodeSchema.optional(), phone: indianMobileSchema.optional() }))) b: { shippingMethod: 'STANDARD' | 'EXPRESS'; paymentMethod: 'ONLINE' | 'COD'; couponCode?: string | null; pincode?: string; phone?: string }, @CurrentUser() u?: AuthUser) {
+    return this.orders.quote(this.carts.owner(req, u?.id), b, u ? { email: u.email, phone: u.phone } : undefined);
+  }
+
+  /** The OTP itself authorises this (works for guests): it was sent to the order's delivery phone. */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) @HttpCode(200) @Post('orders/:number/confirm-cod')
+  confirmCod(@Param('number') number: string, @Body(new ZodPipe(codConfirmSchema)) b: { code: string }) {
+    return this.orders.confirmCod(number, b.code);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } }) @HttpCode(200) @Post('orders/:number/resend-cod-otp')
+  resendCod(@Param('number') number: string) {
+    return this.orders.resendCodOtp(number);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } }) @Post('checkout')
@@ -70,10 +81,10 @@ export class CheckoutController {
   }
 
   @Get('orders/track')
-  async track(@Query(new ZodPipe(z.object({ number: z.string().trim().toUpperCase().min(5).max(30), email: z.string().trim().toLowerCase().email() }))) q: { number: string; email: string }) {
+  async track(@Query(new ZodPipe(z.object({ number: z.string().trim().toUpperCase().min(5).max(30), email: z.string().trim().toLowerCase().email().optional(), phone: indianMobileSchema.optional() }).refine((q) => q.email || q.phone, { message: 'Enter the email or phone used for the order', path: ['email'] }))) q: { number: string; email?: string; phone?: string }) {
     const o = await this.prisma.order.findUnique({ where: { number: q.number } });
-    // Same response whether the number or the email is wrong (no enumeration).
-    if (!o || o.customerEmail !== q.email) throw notFound('Order');
+    // Same response whether the number, email or phone is wrong (no enumeration).
+    if (!o || (q.email ? o.customerEmail !== q.email : o.customerPhone !== q.phone)) throw notFound('Order');
     return this.orders.detail({ id: o.id });
   }
 }
@@ -115,18 +126,20 @@ export class CustomerOrdersController {
   @Post('returns')
   async createReturn(@CurrentUser() u: AuthUser, @Body(new ZodPipe(returnRequestSchema)) b: z.infer<typeof returnRequestSchema>) {
     const { r, number } = await this.orders.requestReturn(u.id, b);
-    return toReturnDto(r, number);
+    return toReturnDto(r, number, await loadExtras(this.prisma, [r]));
   }
 
   @Get('returns')
   async returns(@CurrentUser() u: AuthUser) {
     const rows = await this.prisma.returnRequest.findMany({ where: { userId: u.id }, include: { items: { include: { orderItem: true } }, order: { select: { number: true } } }, orderBy: { createdAt: 'desc' } });
-    return rows.map((r) => toReturnDto(r, r.order.number));
+    const extras = await loadExtras(this.prisma, rows);
+    return rows.map((r) => toReturnDto(r, r.order.number, extras));
   }
 }
 
 const adminOrderQ = paginationSchema.extend({
-  status: z.enum(['PENDING_PAYMENT', 'CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED']).optional(),
+  status: z.enum(['PENDING_PAYMENT', 'CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'RETURNED', 'RTO']).optional(),
+  codPending: z.enum(['true', 'false']).optional(),
   from: z.coerce.date().optional(), to: z.coerce.date().optional(),
 });
 
@@ -140,6 +153,7 @@ export class AdminOrdersController {
   async list(@Query(new ZodPipe(adminOrderQ)) q: z.infer<typeof adminOrderQ>) {
     const where = {
       ...(q.status ? { status: q.status } : {}),
+      ...(q.codPending === 'true' ? { codConfirmation: 'PENDING' as const, status: { not: 'CANCELLED' as const } } : {}),
       ...(q.from || q.to ? { createdAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}),
       ...(q.q ? { OR: [{ number: { contains: q.q.toUpperCase() } }, { customerEmail: { contains: q.q.toLowerCase() } }, { customerName: { contains: q.q, mode: 'insensitive' as const } }, { customerPhone: { contains: q.q } }] } : {}),
     };
@@ -188,19 +202,25 @@ export class AdminOrdersController {
   }
 
   @RequirePermissions('orders:read') @Get('returns')
-  async returns(@Query(new ZodPipe(paginationSchema.extend({ status: z.enum(['REQUESTED', 'APPROVED', 'REJECTED', 'RECEIVED', 'REFUNDED']).optional() }))) q: { page: number; pageSize: number; status?: 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'RECEIVED' | 'REFUNDED' }) {
+  async returns(@Query(new ZodPipe(paginationSchema.extend({ status: z.enum(['REQUESTED', 'APPROVED', 'REJECTED', 'RECEIVED', 'REFUNDED', 'EXCHANGED']).optional() }))) q: { page: number; pageSize: number; status?: 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'RECEIVED' | 'REFUNDED' | 'EXCHANGED' }) {
     const where = q.status ? { status: q.status } : {};
     const [rows, total] = await Promise.all([
       this.prisma.returnRequest.findMany({ where, include: { items: { include: { orderItem: true } }, order: { select: { number: true } } }, orderBy: { createdAt: 'desc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
       this.prisma.returnRequest.count({ where }),
     ]);
-    return paginated(rows.map((r) => toReturnDto(r, r.order.number)), total, q.page, q.pageSize);
+    const extras = await loadExtras(this.prisma, rows);
+    return paginated(rows.map((r) => toReturnDto(r, r.order.number, extras)), total, q.page, q.pageSize);
   }
 
   @RequirePermissions('orders:write') @HttpCode(200) @Post('returns/:id/decision')
   async decide(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(returnDecisionSchema)) b: z.infer<typeof returnDecisionSchema>) {
     if (b.action === 'REFUND' && !u.permissions.includes('orders:refund')) throw new AppError('FORBIDDEN', 'Missing permission: orders:refund', 403);
     const { r, number } = await this.orders.decideReturn(id, b.action, b.note, b.restock, actorOf(u));
-    return toReturnDto(r, number);
+    return toReturnDto(r, number, await loadExtras(this.prisma, [r]));
+  }
+
+  @RequirePermissions('orders:write') @HttpCode(200) @Post('orders/:id/confirm-cod')
+  confirmCod(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(z.object({ note: z.string().trim().max(300).optional() }))) b: { note?: string }) {
+    return this.orders.staffConfirmCod(id, b.note, actorOf(u));
   }
 }

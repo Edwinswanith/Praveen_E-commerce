@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
-  changePasswordSchema, forgotPasswordSchema, loginSchema, registerSchema, resetPasswordSchema, verifyEmailSchema,
+  changePasswordSchema, forgotPasswordSchema, loginSchema, otpRequestSchema, otpVerifySchema, registerSchema, resetPasswordSchema, verifyEmailSchema,
 } from '@vyra/shared';
 import { ZodPipe } from '../../common/http/zod.pipe';
 import { unauthorized } from '../../common/http/errors';
@@ -34,6 +34,19 @@ export class AuthController {
     this.tokens.setCookies(res, 'customer', tokens);
     await this.carts.mergeGuestCart(req, res, user.id);
     return user;
+  }
+
+  @Public() @Throttle({ default: { limit: 5, ttl: 60_000 } }) @HttpCode(200) @Post('otp/request')
+  requestOtp(@Body(new ZodPipe(otpRequestSchema)) body: { phone: string }) {
+    return this.auth.requestOtp(body.phone);
+  }
+
+  @Public() @Throttle(AUTH_LIMIT) @HttpCode(200) @Post('otp/verify')
+  async verifyOtp(@Body(new ZodPipe(otpVerifySchema)) body: { phone: string; code: string; name?: string; marketingOptIn?: boolean }, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { user, isNewUser, tokens } = await this.auth.loginWithOtp(body, meta(req));
+    this.tokens.setCookies(res, 'customer', tokens);
+    await this.carts.mergeGuestCart(req, res, user.id);
+    return { user, isNewUser };
   }
 
   @Public() @HttpCode(200) @Post('refresh')

@@ -11,6 +11,7 @@ import { Public } from '../auth/auth.decorators';
 import { PaymentsGateway } from '../payments/payments.gateway';
 import { ShippingService } from '../shipping/shipping.service';
 import { EmbeddingService } from '../ai/embedding.service';
+import { MessagingService } from '../../common/messaging/messaging.service';
 
 @ApiTags('platform')
 @Public()
@@ -19,6 +20,7 @@ export class HealthController {
   constructor(
     @Inject(ENV) private readonly env: Env, private readonly prisma: PrismaService, private readonly queue: QueueService, private readonly mail: MailService,
     private readonly payments: PaymentsGateway, private readonly shipping: ShippingService, private readonly embeddings: EmbeddingService,
+    private readonly messaging: MessagingService,
   ) {}
 
   /** Liveness + honest integration status ("pending" = credentials not configured). */
@@ -32,7 +34,7 @@ export class HealthController {
       integrations: {
         payments: this.payments.provider ? `${this.payments.provider.name}${this.payments.provider.name === 'mock' ? ' (test mode)' : ''}` : 'pending',
         cod: this.env.COD_ENABLED, shipping: this.env.SHIPPING_PROVIDER === 'shiprocket' ? s(this.shipping.shiprocket.configured) : 'manual',
-        email: s(this.mail.configured), embeddings: `${this.embeddings.provider.textModel}${this.embeddings.provider.configured ? '' : ' (pending)'}`, storage: this.env.STORAGE_DRIVER,
+        email: s(this.mail.configured), sms: s(this.messaging.smsConfigured), whatsapp: s(this.messaging.whatsappConfigured), embeddings: `${this.embeddings.provider.textModel}${this.embeddings.provider.configured ? '' : ' (pending)'}`, storage: this.env.STORAGE_DRIVER,
       },
     };
   }

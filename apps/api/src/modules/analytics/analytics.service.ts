@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { DashboardDto } from '@vyra/shared';
+import type { CodAnalyticsDto, DashboardDto, ProductReturnRateDto } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { decToNum } from '../../common/money';
 import { InventoryService } from '../inventory/inventory.service';
@@ -106,6 +106,55 @@ export class AnalyticsService {
     const total = await this.prisma.order.count({ where: { createdAt: { gte: from, lt: to } } });
     const cancelled = rows.reduce((s, r) => s + r._count, 0);
     return { total, cancelled, rate: total ? Math.round((cancelled / total) * 1000) / 10 : 0, byReason: rows.map((r) => ({ reason: r.cancelReason ?? 'Unspecified', count: r._count, value: decToNum(r._sum.grandTotal ?? 0) })).sort((a, b) => b.count - a.count) };
+  }
+
+  /** COD health: share, confirmation rate, RTO rate and the PIN codes that refuse most. */
+  async cod(from: Date, to: Date): Promise<CodAnalyticsDto> {
+    const [r] = await this.prisma.$queryRaw<{ cod: bigint; prepaid: bigint; confirmed: bigint; autocancelled: bigint; rto: bigint; rtovalue: Prisma.Decimal | null; shippedcod: bigint }[]>`
+      SELECT count(*) FILTER (WHERE "paymentMethod" = 'COD')::bigint AS cod,
+             count(*) FILTER (WHERE "paymentMethod" = 'ONLINE' AND "exchangeForOrderId" IS NULL AND status <> 'PENDING_PAYMENT')::bigint AS prepaid,
+             count(*) FILTER (WHERE "paymentMethod" = 'COD' AND "codConfirmation" = 'CONFIRMED')::bigint AS confirmed,
+             count(*) FILTER (WHERE "paymentMethod" = 'COD' AND status = 'CANCELLED' AND "cancelReason" = 'Cash on Delivery order was not confirmed')::bigint AS autocancelled,
+             count(*) FILTER (WHERE "paymentMethod" = 'COD' AND status = 'RTO')::bigint AS rto,
+             sum("grandTotal") FILTER (WHERE "paymentMethod" = 'COD' AND status = 'RTO') AS rtovalue,
+             count(*) FILTER (WHERE "paymentMethod" = 'COD' AND status IN ('SHIPPED','OUT_FOR_DELIVERY','DELIVERED','RTO','RETURNED'))::bigint AS shippedcod
+        FROM orders WHERE "createdAt" >= ${from} AND "createdAt" < ${to}`;
+    const pins = await this.prisma.$queryRaw<{ pincode: string; rto: bigint; orders: bigint }[]>`
+      SELECT "shippingAddress"->>'pincode' AS pincode, count(*) FILTER (WHERE status = 'RTO')::bigint AS rto, count(*)::bigint AS orders
+        FROM orders WHERE "paymentMethod" = 'COD' AND "createdAt" >= ${from} AND "createdAt" < ${to}
+       GROUP BY 1 HAVING count(*) FILTER (WHERE status = 'RTO') > 0 ORDER BY rto DESC, orders DESC LIMIT 10`;
+    const n = (b: bigint | undefined) => Number(b ?? 0);
+    const cod = n(r?.cod), prepaid = n(r?.prepaid), shipped = n(r?.shippedcod), rto = n(r?.rto);
+    const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+    return {
+      codOrders: cod, prepaidOrders: prepaid, codShare: pct(cod, cod + prepaid), confirmedRate: pct(n(r?.confirmed), cod), autoCancelled: n(r?.autocancelled),
+      rtoOrders: rto, rtoRate: pct(rto, shipped), rtoValue: decToNum(r?.rtovalue ?? 0),
+      topRtoPincodes: pins.map((p) => ({ pincode: p.pincode, rto: n(p.rto), orders: n(p.orders) })),
+    };
+  }
+
+  /** Per-product return rate (returns + exchanges) with the most common reason: drop or fix bad products. */
+  async returnRates(from: Date, to: Date): Promise<ProductReturnRateDto[]> {
+    const rows = await this.prisma.$queryRaw<{ productId: string; name: string; sold: bigint; returned: bigint; exchanges: bigint; topReason: string | null }[]>`
+      WITH sold AS (
+        SELECT oi."productId", max(oi."productName") AS name, sum(oi.quantity)::bigint AS sold
+          FROM order_items oi JOIN orders o ON o.id = oi."orderId"
+         WHERE o.status IN ('DELIVERED','RETURNED') AND o."exchangeForOrderId" IS NULL AND o."createdAt" >= ${from} AND o."createdAt" < ${to}
+         GROUP BY 1
+      ), ret AS (
+        SELECT oi."productId", sum(ri.quantity)::bigint AS returned,
+               sum(ri.quantity) FILTER (WHERE rr.type = 'EXCHANGE')::bigint AS exchanges,
+               mode() WITHIN GROUP (ORDER BY rr.reason) AS "topReason"
+          FROM return_items ri JOIN return_requests rr ON rr.id = ri."returnRequestId" JOIN order_items oi ON oi.id = ri."orderItemId"
+         WHERE rr.status <> 'REJECTED' GROUP BY 1
+      )
+      SELECT s."productId", s.name, s.sold, coalesce(r.returned, 0)::bigint AS returned, coalesce(r.exchanges, 0)::bigint AS exchanges, r."topReason"
+        FROM sold s LEFT JOIN ret r ON r."productId" = s."productId"
+       ORDER BY coalesce(r.returned, 0)::float / greatest(s.sold, 1) DESC, s.sold DESC LIMIT 200`;
+    return rows.map((r) => {
+      const sold = Number(r.sold), returned = Number(r.returned);
+      return { productId: r.productId, name: r.name, unitsSold: sold, unitsReturned: returned, returnRate: sold ? Math.round((returned / sold) * 1000) / 10 : 0, topReason: r.topReason, exchanges: Number(r.exchanges) };
+    });
   }
 
   async returns(from: Date, to: Date) {

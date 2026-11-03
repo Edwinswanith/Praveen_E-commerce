@@ -46,6 +46,16 @@ export class AnalyticsController {
     return this.analytics.cancellations(q.from, q.to);
   }
 
+  @Get('analytics/cod')
+  cod(@Query(new ZodPipe(range)) q: Range) {
+    return this.analytics.cod(q.from, q.to);
+  }
+
+  @Get('analytics/return-rates')
+  returnRates(@Query(new ZodPipe(range)) q: Range) {
+    return this.analytics.returnRates(q.from, q.to);
+  }
+
   @Get('analytics/returns')
   returns(@Query(new ZodPipe(range)) q: Range) {
     return this.analytics.returns(q.from, q.to);

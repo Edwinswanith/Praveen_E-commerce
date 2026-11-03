@@ -3,6 +3,7 @@ import { ThrottlerException } from '@nestjs/throttler';
 import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { AppError } from './errors';
+import { reportError } from '../monitoring/monitoring';
 
 /** Converts every error into the `{ error: { code, message, details, requestId } }` envelope. */
 @Catch()
@@ -47,7 +48,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
     }
 
-    if (status >= 500) this.logger.error({ requestId, path: req.url, err: exception instanceof Error ? exception.stack : exception });
+    if (status >= 500) {
+      this.logger.error({ requestId, path: req.url, err: exception instanceof Error ? exception.stack : exception });
+      reportError(exception, { requestId, path: req.url.split('?')[0], status });
+    }
     res.status(status).json({ error: { code, message, ...(details !== undefined ? { details } : {}), requestId } });
   }
 }

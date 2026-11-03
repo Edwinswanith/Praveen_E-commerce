@@ -84,6 +84,8 @@ enum OrderStatus {
   DELIVERED
   CANCELLED
   RETURNED
+  /// Courier returned the parcel undelivered (refused / unreachable): "return to origin".
+  RTO
 }
 
 enum PaymentMethod {
@@ -132,6 +134,8 @@ enum ReturnStatus {
   REJECTED
   RECEIVED
   REFUNDED
+  /// Exchange completed: replacement order created.
+  EXCHANGED
 }
 
 enum CouponType {
@@ -155,6 +159,28 @@ enum EmbeddingJobStatus {
   PROCESSING
   COMPLETED
   FAILED
+}
+
+enum OtpPurpose {
+  LOGIN
+  COD_CONFIRM
+}
+
+enum CodConfirmation {
+  NOT_REQUIRED
+  PENDING
+  CONFIRMED
+}
+
+enum ReturnType {
+  RETURN
+  EXCHANGE
+}
+
+enum FitFeedback {
+  RUNS_SMALL
+  TRUE_TO_SIZE
+  RUNS_LARGE
 }
 
 enum TokenPurpose {
@@ -195,11 +221,13 @@ model RolePermission {
 
 model User {
   id              String    @id @default(cuid())
-  email           String    @unique
+  /// Optional: customers may sign up with phone + OTP only.
+  email           String?   @unique
   phone           String?   @unique
   name            String
   passwordHash    String
   emailVerifiedAt DateTime? @db.Timestamptz(3)
+  phoneVerifiedAt DateTime? @db.Timestamptz(3)
   isActive        Boolean   @default(true)
   roleId          String
   role            Role      @relation(fields: [roleId], references: [id])
@@ -295,6 +323,43 @@ model Address {
 
   @@index([userId])
   @@map("addresses")
+}
+
+/// One-time passwords (login, COD confirmation). Only a peppered hash is stored.
+model OtpCode {
+  id         String     @id @default(cuid())
+  phone      String
+  purpose    OtpPurpose
+  codeHash   String
+  orderId    String?
+  attempts   Int        @default(0)
+  expiresAt  DateTime   @db.Timestamptz(3)
+  consumedAt DateTime?  @db.Timestamptz(3)
+  createdAt  DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([phone, purpose, createdAt])
+  @@map("otp_codes")
+}
+
+/// COD risk is tracked per phone number (works for guests and accounts alike).
+model CodRisk {
+  phone       String    @id
+  rtoCount    Int       @default(0)
+  codBlocked  Boolean   @default(false)
+  note        String?
+  lastRtoAt   DateTime? @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@map("cod_risk")
+}
+
+/// PIN codes where Cash on Delivery is disabled (high refusal areas).
+model CodBlockedPincode {
+  pincode   String   @id @db.Char(6)
+  reason    String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("cod_blocked_pincodes")
 }
 
 model NewsletterSubscriber {
@@ -605,6 +670,8 @@ model Cart {
   /// Opaque token for guest carts (cookie vyra_cart)
   guestToken String?    @unique
   couponCode String?
+  /// Last abandoned-cart reminder (sent at most once per cart change).
+  reminderSentAt DateTime? @db.Timestamptz(3)
   createdAt  DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt  DateTime   @updatedAt @db.Timestamptz(3)
   items      CartItem[]
@@ -673,6 +740,12 @@ model Order {
   taxTotal        Decimal        @default(0) @db.Decimal(12, 2)
   grandTotal      Decimal        @db.Decimal(12, 2)
   idempotencyKey  String         @unique
+  prepaidDiscount Decimal        @default(0) @db.Decimal(12, 2)
+  codConfirmation CodConfirmation @default(NOT_REQUIRED)
+  codConfirmedAt  DateTime?      @db.Timestamptz(3)
+  /// Set on replacement orders created by an exchange.
+  exchangeForOrderId String?
+  rtoAt           DateTime?      @db.Timestamptz(3)
   reservationExpiresAt DateTime? @db.Timestamptz(3)
   cancelReason    String?
   placedAt        DateTime       @default(now()) @db.Timestamptz(3)
@@ -839,6 +912,9 @@ model ReturnRequest {
   userId       String
   user         User         @relation(fields: [userId], references: [id])
   status       ReturnStatus @default(REQUESTED)
+  type         ReturnType   @default(RETURN)
+  /// Replacement order created when an exchange is received.
+  replacementOrderId String?
   reason       String
   comments     String?
   refundAmount Decimal      @default(0) @db.Decimal(12, 2)
@@ -860,6 +936,8 @@ model ReturnItem {
   orderItemId     String
   orderItem       OrderItem     @relation(fields: [orderItemId], references: [id])
   quantity        Int
+  /// EXCHANGE only: the size/colour wanted instead (same product, same price).
+  exchangeVariantId String?
 
   @@map("return_items")
 }
@@ -916,6 +994,9 @@ model Review {
   title            String?
   body             String?
   verifiedPurchase Boolean  @default(false)
+  fit              FitFeedback?
+  sizePurchased    String?
+  images           ReviewImage[]
   isPublished      Boolean  @default(true)
   createdAt        DateTime @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @db.Timestamptz(3)
@@ -923,6 +1004,19 @@ model Review {
   @@unique([productId, userId])
   @@index([productId, createdAt])
   @@map("reviews")
+}
+
+model ReviewImage {
+  id         String   @id @default(cuid())
+  reviewId   String
+  review     Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  storageKey String
+  url        String
+  thumbUrl   String
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([reviewId])
+  @@map("review_images")
 }
 
 // ---------------------------------------------------------------- AI search
