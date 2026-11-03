@@ -13,7 +13,8 @@ interface RazorpayOptions {
   name: string;
   order_id: string;
   description?: string;
-  prefill?: { name?: string; email?: string; contact?: string };
+  prefill?: { name?: string; email?: string; contact?: string; method?: 'upi' | 'card' | 'netbanking' | 'wallet' };
+  config?: { display?: { preferences?: { show_default_blocks?: boolean } } };
   theme?: { color?: string };
   handler: (resp: RazorpaySuccess) => void;
   modal?: { ondismiss?: () => void };
@@ -86,7 +87,9 @@ export async function payWithRazorpay(
       name: payment.name,
       order_id: payment.providerOrderId,
       description: `Order ${order.number}`,
-      prefill: payment.prefill,
+      // UPI first (most Indian shoppers pay this way); all other methods stay available.
+      prefill: { ...payment.prefill, method: 'upi' },
+      config: { display: { preferences: { show_default_blocks: true } } },
       theme: { color: '#ff3f6c' },
       handler: resolve,
       modal: { ondismiss: () => reject(new PaymentDismissed()) },

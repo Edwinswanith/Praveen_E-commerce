@@ -5,8 +5,11 @@ import { SWRConfig } from 'swr';
 import { Toaster } from 'sonner';
 import { ApiError, swrFetcher } from '@/lib/api';
 import { AuthProvider } from '@/hooks/use-auth';
+import { initAnalytics } from '@/lib/analytics';
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  // Capture the landing page's utm_source as the session's first touch.
+  React.useEffect(() => initAnalytics(), []);
   return (
     <SWRConfig
       value={{

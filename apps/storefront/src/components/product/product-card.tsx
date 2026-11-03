@@ -3,6 +3,7 @@ import type { ProductCardDto } from '@vyra/shared';
 import { Badge, ColorDot, Price, cn } from '@vyra/ui';
 import { ProductImage } from './product-image';
 import { WishlistButton } from './wishlist-button';
+import { QuickViewButton } from './quick-view-button';
 import { RatingPill } from '../ui/stars';
 
 const BADGE_TONE: Record<string, 'brand' | 'violet' | 'sun' | 'teal' | 'neutral'> = {
@@ -25,6 +26,7 @@ export function ProductCard({
   const colors = product.colors.slice(0, 5);
   return (
     <article className={cn('group relative flex flex-col', className)}>
+      <div className="relative">
       <Link
         href={href}
         className="relative block aspect-[3/4] overflow-hidden rounded-md bg-surface-2"
@@ -78,6 +80,13 @@ export function ProductCard({
         productName={product.name}
         className="absolute right-2 top-2"
       />
+      <QuickViewButton
+        productId={product.id}
+        slug={product.slug}
+        name={`${product.brand} ${product.name}`}
+        className={product.inStock ? undefined : 'max-lg:bottom-7 lg:bottom-9'}
+      />
+      </div>
       <div className="mt-2 flex flex-col gap-0.5 px-0.5">
         <p className="truncate text-sm font-bold text-fg">{product.brand}</p>
         <Link href={href} className="truncate text-sm text-muted hover:text-fg">

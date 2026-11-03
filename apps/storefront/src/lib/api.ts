@@ -1,4 +1,5 @@
 import type { ApiErrorBody, PageMeta } from '@vyra/shared';
+import { analyticsHeaders } from './analytics';
 
 /** Error thrown for every non-2xx API response (or a network failure: code NETWORK_ERROR, status 0). */
 export class ApiError extends Error {
@@ -83,7 +84,7 @@ export function refreshSession(): Promise<boolean> {
     refreshInFlight = fetch(buildUrl('/auth/refresh'), {
       method: 'POST',
       credentials: 'include',
-      headers: { 'X-Requested-With': 'vyra', Accept: 'application/json' },
+      headers: { 'X-Requested-With': 'vyra', Accept: 'application/json', ...analyticsHeaders() },
     })
       .then((r) => r.ok)
       .catch(() => false)
@@ -96,7 +97,8 @@ export function refreshSession(): Promise<boolean> {
 
 async function send(path: string, opts: RequestOptions): Promise<Response> {
   const method = opts.method ?? 'GET';
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  // Session analytics headers ride on every browser request (server components use server-api.ts).
+  const headers: Record<string, string> = { Accept: 'application/json', ...analyticsHeaders() };
   let body: BodyInit | undefined;
   if (method !== 'GET') headers['X-Requested-With'] = 'vyra';
   if (opts.body instanceof FormData) {

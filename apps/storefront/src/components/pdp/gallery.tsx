@@ -6,6 +6,7 @@ import type { ProductImageDto, ProductVideoDto } from '@vyra/shared';
 import { cn } from '@vyra/ui';
 import { ProductImage } from '../product/product-image';
 import { Modal } from '../ui/dialog';
+import { usePrefersReducedMotion } from '@/hooks/use-media-query';
 
 type Media = { kind: 'image'; image: ProductImageDto } | { kind: 'video'; video: ProductVideoDto };
 
@@ -82,16 +83,45 @@ export function Gallery({
   );
   const [index, setIndex] = React.useState(0);
   const [viewer, setViewer] = React.useState(false);
-  React.useEffect(() => setIndex(0), [color]);
-  const current = media[Math.min(index, media.length - 1)];
-  const go = React.useCallback(
-    (d: number) => setIndex((i) => (media.length ? (i + d + media.length) % media.length : 0)),
-    [media.length],
+  const trackRef = React.useRef<HTMLDivElement>(null);
+  const reducedMotion = usePrefersReducedMotion();
+
+  /** Scroll the snap track to slide i (the scroll handler then updates `index`). */
+  const scrollToIndex = React.useCallback(
+    (i: number, smooth = true) => {
+      const el = trackRef.current;
+      if (!el) return;
+      el.scrollTo({ left: i * el.clientWidth, behavior: smooth && !reducedMotion ? 'smooth' : 'auto' });
+      setIndex(i);
+    },
+    [reducedMotion],
   );
+
+  React.useEffect(() => scrollToIndex(0, false), [color, scrollToIndex]);
+
+  const go = React.useCallback(
+    (d: number) => {
+      if (!media.length) return;
+      scrollToIndex((index + d + media.length) % media.length);
+    },
+    [index, media.length, scrollToIndex],
+  );
+
+  const frame = React.useRef(0);
+  const onScroll = () => {
+    cancelAnimationFrame(frame.current);
+    frame.current = requestAnimationFrame(() => {
+      const el = trackRef.current;
+      if (!el || el.clientWidth === 0) return;
+      const i = Math.round(el.scrollLeft / el.clientWidth);
+      setIndex((prev) => (prev === i ? prev : Math.min(Math.max(i, 0), media.length - 1)));
+    });
+  };
+  React.useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
   if (media.length === 0) {
     return (
-      <div className="aspect-[3/4] w-full overflow-hidden rounded-lg">
+      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg">
         <ProductImage src={null} alt={name} fill />
       </div>
     );
@@ -101,11 +131,11 @@ export function Gallery({
     <button
       key={m.kind === 'image' ? m.image.id : m.video.id}
       type="button"
-      onClick={() => setIndex(i)}
+      onClick={() => scrollToIndex(i)}
       aria-label={m.kind === 'image' ? `Show image ${i + 1}` : 'Play video'}
       aria-current={i === index}
       className={cn(
-        'relative aspect-[3/4] w-16 shrink-0 overflow-hidden rounded-md border-2 bg-surface-2 lg:w-full',
+        'relative aspect-[3/4] w-full shrink-0 overflow-hidden rounded-md border-2 bg-surface-2',
         i === index ? 'border-brand-500' : 'border-transparent hover:border-border-strong',
       )}
     >
@@ -137,45 +167,80 @@ export function Gallery({
   );
 
   return (
-    <div className="flex flex-col-reverse gap-3 lg:grid lg:grid-cols-[72px_1fr]">
+    <div className="lg:grid lg:grid-cols-[72px_1fr] lg:gap-3">
       <div
-        className="flex gap-2 overflow-x-auto scrollbar-none lg:max-h-[640px] lg:flex-col lg:overflow-y-auto"
+        className="hidden lg:flex lg:max-h-[640px] lg:flex-col lg:gap-2 lg:overflow-y-auto scrollbar-none"
         aria-label="Product media"
       >
         {media.map(thumb)}
       </div>
-      <div className="relative">
-        {current?.kind === 'image' ? (
-          <ZoomImage
-            image={current.image}
-            name={name}
-            priority={index === 0}
-            onOpen={() => setViewer(true)}
-          />
-        ) : current?.kind === 'video' ? (
-          <video
-            key={current.video.id}
-            src={current.video.url}
-            poster={current.video.posterUrl ?? undefined}
-            controls
-            playsInline
-            className="aspect-[3/4] w-full rounded-lg bg-black object-contain"
-          >
-            <track kind="captions" />
-          </video>
-        ) : null}
-        {current?.kind === 'image' && current.image.aiGenerated && (
-          <p className="pointer-events-none absolute bottom-3 left-3 rounded-sm bg-bg/90 px-2 py-1 text-[11px] font-medium text-muted shadow-sm">
-            AI-styled photo · actual product may vary slightly
-          </p>
-        )}
+      <div className="relative min-w-0">
+        <div
+          ref={trackRef}
+          onScroll={onScroll}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              go(1);
+            } else if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              go(-1);
+            }
+          }}
+          tabIndex={0}
+          role="region"
+          aria-roledescription="carousel"
+          aria-label={`${name} images. Swipe or use the arrow keys to browse.`}
+          className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain rounded-lg scrollbar-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+          data-testid="gallery-track"
+        >
+          {media.map((m, i) => (
+            <div
+              key={m.kind === 'image' ? m.image.id : m.video.id}
+              className="relative w-full shrink-0 snap-center snap-always"
+              role="group"
+              aria-roledescription="slide"
+              aria-label={`${i + 1} of ${media.length}`}
+            >
+              {m.kind === 'image' ? (
+                <>
+                  <ZoomImage
+                    image={m.image}
+                    name={name}
+                    priority={i === 0}
+                    onOpen={() => {
+                      setIndex(i);
+                      setViewer(true);
+                    }}
+                  />
+                  {m.image.aiGenerated && (
+                    <p className="pointer-events-none absolute left-3 top-3 rounded-sm bg-bg/90 px-2 py-1 text-[11px] font-medium text-muted shadow-sm">
+                      AI-styled photo · actual product may vary slightly
+                    </p>
+                  )}
+                </>
+              ) : (
+                <video
+                  src={m.video.url}
+                  poster={m.video.posterUrl ?? undefined}
+                  controls
+                  playsInline
+                  preload="none"
+                  className="aspect-[3/4] w-full rounded-lg bg-black object-contain"
+                >
+                  <track kind="captions" />
+                </video>
+              )}
+            </div>
+          ))}
+        </div>
         {media.length > 1 && (
           <>
             <button
               type="button"
               onClick={() => go(-1)}
               aria-label="Previous image"
-              className="absolute left-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-full bg-bg/90 shadow-sm lg:hidden"
+              className="absolute left-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-bg/90 shadow-sm max-lg:hidden"
             >
               <ChevronLeft className="size-5" aria-hidden />
             </button>
@@ -183,10 +248,28 @@ export function Gallery({
               type="button"
               onClick={() => go(1)}
               aria-label="Next image"
-              className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-full bg-bg/90 shadow-sm lg:hidden"
+              className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-bg/90 shadow-sm max-lg:hidden"
             >
               <ChevronRight className="size-5" aria-hidden />
             </button>
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center gap-1.5 lg:hidden"
+              aria-hidden
+              data-testid="gallery-dots"
+            >
+              {media.map((m, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'h-1.5 rounded-full bg-white shadow-[0_0_0_1px_rgba(0,0,0,.15)] transition-all duration-200 motion-reduce:transition-none',
+                    i === index ? 'w-4 bg-brand-500' : 'w-1.5 opacity-80',
+                  )}
+                />
+              ))}
+            </div>
+            <p className="sr-only" aria-live="polite">
+              Image {index + 1} of {media.length}
+            </p>
           </>
         )}
       </div>
@@ -194,8 +277,8 @@ export function Gallery({
         open={viewer}
         onOpenChange={setViewer}
         media={media}
-        index={index}
-        onIndex={setIndex}
+        index={Math.min(index, media.length - 1)}
+        onIndex={(i) => scrollToIndex(i, false)}
         name={name}
       />
     </div>

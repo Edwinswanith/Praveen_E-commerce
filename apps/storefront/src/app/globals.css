@@ -21,3 +21,12 @@
     display: none;
   }
 }
+
+@keyframes vyra-scan {
+  0% {
+    top: -4rem;
+  }
+  100% {
+    top: 100%;
+  }
+}

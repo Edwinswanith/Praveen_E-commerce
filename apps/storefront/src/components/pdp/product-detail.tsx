@@ -10,10 +10,13 @@ import { Badge, Button, Price } from '@vyra/ui';
 import { ApiError, errorMessage } from '@/lib/api';
 import { initialSelection, resolveVariant, selectionForVariant, stockMessage, type Selection } from '@/lib/variants';
 import { recordRecentlyViewed } from '@/lib/recently-viewed';
+import { track } from '@/lib/analytics';
 import { useCart } from '@/hooks/use-cart';
 import { RatingPill } from '../ui/stars';
 import { WishlistButton } from '../product/wishlist-button';
-import { Gallery } from './gallery';
+import { Gallery, imagesForColor } from './gallery';
+import { StickyAddBar, useStickyBarVisible } from './sticky-add-bar';
+import { TryOnButton } from './try-on/try-on-button';
 import { VariantSelector } from './variant-selector';
 import { SizeGuide } from './size-guide';
 import { PincodeCheck } from './pincode-check';
@@ -29,8 +32,17 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
   const [guide, setGuide] = React.useState(false);
   const [busy, setBusy] = React.useState<'add' | 'buy' | null>(null);
   const sizeRef = React.useRef<HTMLDivElement>(null);
+  const ctaRef = React.useRef<HTMLDivElement>(null);
+  const stickyVisible = useStickyBarVisible(ctaRef);
 
   React.useEffect(() => recordRecentlyViewed(product.id), [product.id]);
+  // Funnel: one PRODUCT_VIEW per PDP mount (per product).
+  const viewed = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (viewed.current === product.id) return;
+    viewed.current = product.id;
+    track('PRODUCT_VIEW', product.id);
+  }, [product.id]);
 
   const variant = resolveVariant(product.variants, selection.color, selection.size);
   const soldOut = !product.variants.some((v) => v.isActive && v.inStock && v.available > 0);
@@ -39,34 +51,47 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
   const stock = stockMessage(variant);
   const sizes = [...new Set(product.variants.filter((v) => v.isActive).map((v) => v.size))];
 
-  const add = async (mode: 'add' | 'buy') => {
-    if (!variant) {
-      setSizeError(selection.color ? 'Please select a size' : 'Please select a colour and size');
-      sizeRef.current?.focus();
-      sizeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      return;
-    }
+  const focusSizes = () => {
+    sizeRef.current?.focus({ preventScroll: true });
+    sizeRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+
+  /** Adds one unit; resolves true on success. Errors are toasted. */
+  const addVariant = async (variantId: string, mode: 'add' | 'buy' = 'add'): Promise<boolean> => {
+    const v = product.variants.find((x) => x.id === variantId);
     setBusy(mode);
     try {
-      await addItem(variant.id, 1);
+      await addItem(variantId, 1);
       if (mode === 'buy') {
         router.push('/checkout');
-        return;
+        return true;
       }
       toast.success('Added to bag', {
-        description: `${product.name} · ${variant.color} · ${variant.size}`,
+        description: `${product.name}${v ? ` · ${v.color} · ${v.size}` : ''}`,
         action: { label: 'View bag', onClick: () => router.push('/cart') },
       });
+      return true;
     } catch (e) {
       toast.error(
         e instanceof ApiError && e.code === 'OUT_OF_STOCK'
           ? 'Sorry, that size just sold out or you already have the maximum available in your bag.'
           : errorMessage(e),
       );
+      return false;
     } finally {
       setBusy(null);
     }
   };
+
+  const add = async (mode: 'add' | 'buy') => {
+    if (!variant) {
+      setSizeError(selection.color ? 'Please select a size' : 'Please select a colour and size');
+      focusSizes();
+      return;
+    }
+    await addVariant(variant.id, mode);
+  };
+  const thumb = imagesForColor(product.images, selection.color)[0];
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:gap-10">
@@ -126,7 +151,7 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
           </p>
         </div>
 
-        <div className="mt-4 grid grid-cols-[1fr_auto] gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <div ref={ctaRef} className="mt-4 grid grid-cols-[1fr_auto] gap-3 sm:grid-cols-[1fr_1fr_auto]">
           <Button
             size="lg"
             onClick={() => void add('add')}
@@ -154,6 +179,20 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
           />
         </div>
 
+        <TryOnButton
+          className="mt-3"
+          productSlug={product.slug}
+          productName={product.name}
+          gender={product.gender}
+          variants={product.variants}
+          selection={selection}
+          onSelectionChange={(s) => {
+            setSelection(s);
+            setSizeError(null);
+          }}
+          onAddToBag={(id) => addVariant(id)}
+        />
+
         <div className="mt-8 border-t border-border pt-6">
           <PincodeCheck />
         </div>
@@ -179,6 +218,19 @@ export function ProductDetail({ product, initialVariantId }: { product: ProductD
           </Link>
         </p>
       </div>
+      <StickyAddBar
+        visible={stickyVisible}
+        imageUrl={thumb ? thumb.thumbUrl || thumb.url : null}
+        name={product.name}
+        price={price}
+        mrp={mrp}
+        color={selection.color}
+        size={selection.size}
+        onPickSize={focusSizes}
+        onAdd={() => void add('add')}
+        busy={busy === 'add'}
+        disabled={soldOut || busy !== null}
+      />
       {product.sizeChart && (
         <SizeGuide open={guide} onOpenChange={setGuide} chart={product.sizeChart} sizes={sizes} />
       )}

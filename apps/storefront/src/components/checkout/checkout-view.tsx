@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { z } from 'zod';
-import { BadgePercent, Banknote, CreditCard, Lock, MapPin, Plus, ShoppingBag, Truck, User } from 'lucide-react';
+import { BadgePercent, Banknote, CreditCard, Lock, Smartphone, MapPin, Plus, ShoppingBag, Truck, User } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
   AddressDto,
@@ -25,6 +25,7 @@ import {
   rememberOrder,
 } from '@/lib/checkout-session';
 import { normalizeIndianMobile } from '@/lib/otp';
+import { track } from '@/lib/analytics';
 import { deliveryDate, userContact } from '@/lib/format';
 import { useAuth } from '@/hooks/use-auth';
 import { useCart } from '@/hooks/use-cart';
@@ -214,6 +215,13 @@ export function CheckoutView() {
   }, [svc, shipping]);
 
   const hasItems = (cart?.items.length ?? 0) > 0;
+  // Funnel: CHECKOUT_STARTED once per checkout mount, only with a non-empty bag.
+  const checkoutTracked = React.useRef(false);
+  React.useEffect(() => {
+    if (!hasItems || checkoutTracked.current) return;
+    checkoutTracked.current = true;
+    track('CHECKOUT_STARTED');
+  }, [hasItems]);
   const quoteKey = hasItems
     ? ([
         'checkout-quote',
@@ -657,14 +665,29 @@ export function CheckoutView() {
               checked={paymentMethod === 'ONLINE'}
               onChange={() => setPaymentMethod('ONLINE')}
             >
-              <p className="flex items-center gap-2 font-semibold">
-                <CreditCard className="size-4" aria-hidden />
-                Pay online
+              <p className="flex flex-wrap items-center gap-2 font-semibold">
+                <Smartphone className="size-4" aria-hidden />
+                UPI
+                <span className="rounded-sm bg-teal-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-teal-700">
+                  UPI · fastest
+                </span>
+                <span className="text-xs font-normal text-muted">Recommended</span>
               </p>
-              <p className="text-muted">
-                UPI, cards, net banking and wallets
+              <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Works with any UPI app">
+                {['GPay', 'PhonePe', 'Paytm', 'BHIM', 'Any UPI app'].map((app) => (
+                  <li
+                    key={app}
+                    className="rounded-full border border-border bg-bg px-2 py-0.5 text-[11px] font-semibold text-fg"
+                  >
+                    {app}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 flex items-center gap-1.5 text-muted">
+                <CreditCard className="size-3.5" aria-hidden />
+                Also cards, net banking and wallets
                 {totals.prepaidSavings > 0 && (
-                  <span className="ml-1 font-semibold text-teal-600">
+                  <span className="font-semibold text-teal-600">
                     · extra {formatINR(totals.prepaidSavings)} off
                   </span>
                 )}
