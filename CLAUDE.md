@@ -48,8 +48,10 @@ Behind an HTTP proxy, Node's fetch needs `NODE_USE_ENV_PROXY=1` (Gemini/Razorpay
 11. **COD orders cannot be packed until `codConfirmation = CONFIRMED`** (customer OTP or staff call). RTO goes through `OrdersService.markRto` (restocks + counts refusals per phone).
 12. **OTP login never trusts an unverified phone**: only accounts with `phoneVerifiedAt` can be signed into by OTP; OTPs are stored hashed and never logged in production.
 13. Exchanges are same-product, same-price swaps fulfilled by a zero-value replacement order. Never refund an exchange that has a replacement.
-15. AI product images are always stored with `aiGenerated = true` (disclosed on the storefront). Never generate children as models; for live products, generate only from a real photo of the garment (`sourceImageId`).
 14. `GET /admin/inventory/reconcile` must always report `consistent: true`; if it doesn't, something bypassed rule 1.
+15. AI product images are always stored with `aiGenerated = true` (disclosed on the storefront). Never generate children as models; for live products, generate only from a real photo of the garment (`sourceImageId`).
+16. **Virtual try-on photos are never persisted** (no disk, DB, logs or cache): processed in memory, result returned as a data URL. Try-on is disabled for kids' products and capped per session + globally per day (`TRYON_*` env).
+17. Revenue-bearing analytics events (ADD_TO_CART, ORDER_PLACED, TRY_ON, SEARCH) are recorded server-side only; the browser may only send PRODUCT_VIEW / CHECKOUT_STARTED / QUICK_VIEW.
 
 ## Status
 See `docs/development/development-roadmap.md` for the module checklist, known limitations and required external configuration.

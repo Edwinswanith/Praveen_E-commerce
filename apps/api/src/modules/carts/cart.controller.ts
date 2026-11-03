@@ -7,13 +7,14 @@ import { ZodPipe } from '../../common/http/zod.pipe';
 import { CurrentUser, OptionalAuth, Public, type AuthUser } from '../auth/auth.decorators';
 import { CouponsService } from '../coupons/coupons.service';
 import { CartService } from './cart.service';
+import { EventsService } from '../events/events.service';
 
 @ApiTags('cart')
 @Public()
 @OptionalAuth()
 @Controller('cart')
 export class CartController {
-  constructor(private readonly carts: CartService) {}
+  constructor(private readonly carts: CartService, private readonly events: EventsService) {}
 
   @Get()
   get(@Req() req: Request, @CurrentUser() u?: AuthUser) {
@@ -21,8 +22,11 @@ export class CartController {
   }
 
   @Post('items')
-  add(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body(new ZodPipe(addToCartSchema)) b: z.infer<typeof addToCartSchema>, @CurrentUser() u?: AuthUser) {
-    return this.carts.add(this.carts.owner(req, u?.id), res, b.variantId, b.quantity);
+  async add(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body(new ZodPipe(addToCartSchema)) b: z.infer<typeof addToCartSchema>, @CurrentUser() u?: AuthUser) {
+    const cart = await this.carts.add(this.carts.owner(req, u?.id), res, b.variantId, b.quantity);
+    const item = cart.items.find((i) => i.variantId === b.variantId);
+    void this.events.record('ADD_TO_CART', this.events.context(req, u?.id), { productId: item?.productId, value: item ? item.unitPrice * b.quantity : null });
+    return cart;
   }
 
   @Patch('items/:id')

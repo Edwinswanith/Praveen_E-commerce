@@ -289,6 +289,24 @@ export const aiPhotoSchema = z.object({
 });
 export type AiPhotoInput = z.infer<typeof aiPhotoSchema>;
 
+export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Invalid session id');
+export const analyticsEventsSchema = z.object({
+  sessionId: sessionIdSchema,
+  device: z.enum(['mobile', 'tablet', 'desktop']).optional(),
+  source: z.string().trim().toLowerCase().max(40).regex(/^[a-z0-9_.-]*$/).optional(),
+  events: z.array(z.object({
+    type: z.enum(['PRODUCT_VIEW', 'CHECKOUT_STARTED', 'QUICK_VIEW']),
+    productId: cuid.optional(),
+  })).min(1).max(20),
+});
+
+export const tryOnSchema = z.object({
+  productSlug: z.string().min(1).max(120),
+  color: z.string().trim().max(40).optional(),
+  /** Explicit consent: "I am 18+ and this is my photo". */
+  consent: z.literal('true', { message: 'Please confirm you are 18+ and this is your photo' }),
+});
+
 export const codPincodeSchema = z.object({ pincode: pincodeSchema, reason: z.string().trim().max(200).optional() });
 export const codRiskUpdateSchema = z.object({ codBlocked: z.boolean(), note: z.string().trim().max(300).optional() });
 

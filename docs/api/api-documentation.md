@@ -210,3 +210,17 @@ Permission strings are `resource:action`. Role grants live in `apps/api/src/modu
 - The admin scanner accepts the tag URL, the EAN-13, the SKU, or legacy `VYRA:<SKU>` text.
 
 Typed admin DTOs now exist for suppliers, purchase orders, scan history, staff users, audit logs and customer detail (`packages/shared/src/types.ts`).
+
+## v1.2 additions: funnel analytics, virtual try-on
+
+### Session analytics (first-party, cookie-less, no PII)
+- The storefront keeps a random session id (`localStorage` key `vyra_sid`, regex `^[A-Za-z0-9_-]{16,64}$`, new id after 30 min idle) and sends it on **every** API call as headers `X-Vyra-Session`, plus `X-Vyra-Device: mobile|tablet|desktop` and `X-Vyra-Source` (first-touch `utm_source`, e.g. `tag` for garment-tag QR scans, persisted for the session). CORS allows these headers.
+- `POST /events` body `analyticsEventsSchema` `{ sessionId, device?, source?, events: [{ type: "PRODUCT_VIEW" | "CHECKOUT_STARTED" | "QUICK_VIEW", productId? }] (≤20) }` → 202 `{ accepted }`. Send PRODUCT_VIEW once per PDP view, CHECKOUT_STARTED when /checkout mounts with items, QUICK_VIEW when a quick view opens. Use `navigator.sendBeacon`-style fire-and-forget (never block UI; failures ignored).
+- ADD_TO_CART, ORDER_PLACED, SEARCH, TRY_ON are recorded **server-side** from the headers (they cannot be sent by the browser).
+
+### Virtual try-on
+- `GET /try-on/quota` → `{ remainingToday, available }` (per session via `X-Vyra-Session`).
+- `POST /try-on` multipart: `photo` (jpeg/png/webp ≤ 8 MB), `productSlug`, `color?`, `consent: "true"` (customer confirms they are 18+ and it is their photo) → `TryOnResponse { image: "data:image/webp;base64,…", color, disclaimer, remainingToday }`. Takes ~10s. Errors: 422 consent missing; 400 kids product / no session; 429 per-session daily cap (default 5) or global daily cap; 503 not configured. **The photo is processed in memory and never stored.** Not available for kids' products. Show `disclaimer` with every result.
+
+### Staff
+| `GET /admin/analytics/funnel?from&to` → `FunnelDto` (steps with unique sessions, conversion/abandonment, byDevice, bySource first-touch incl. revenue, products view→bag, tryOn usage incl. today vs daily limit, daily series) | `analytics:read` |

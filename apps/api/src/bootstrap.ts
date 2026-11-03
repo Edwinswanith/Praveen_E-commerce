@@ -21,7 +21,7 @@ export async function createApp() {
   app.use(cookieParser());
   app.useBodyParser('json', { limit: '1mb' });
   const origins = env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean);
-  app.enableCors({ origin: origins, credentials: true, allowedHeaders: ['content-type', 'x-requested-with', 'authorization', 'x-request-id'] });
+  app.enableCors({ origin: origins, credentials: true, allowedHeaders: ['content-type', 'x-requested-with', 'authorization', 'x-request-id', 'x-vyra-session', 'x-vyra-device', 'x-vyra-source'] });
   app.setGlobalPrefix('api/v1', { exclude: ['media/(.*)'] });
 
   if (env.STORAGE_DRIVER === 'local') {

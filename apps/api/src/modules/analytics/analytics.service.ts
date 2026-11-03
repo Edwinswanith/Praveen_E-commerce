@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { CodAnalyticsDto, DashboardDto, ProductReturnRateDto } from '@vyra/shared';
+import type { CodAnalyticsDto, DashboardDto, FunnelDto, ProductReturnRateDto } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { decToNum } from '../../common/money';
 import { InventoryService } from '../inventory/inventory.service';
@@ -106,6 +106,70 @@ export class AnalyticsService {
     const total = await this.prisma.order.count({ where: { createdAt: { gte: from, lt: to } } });
     const cancelled = rows.reduce((s, r) => s + r._count, 0);
     return { total, cancelled, rate: total ? Math.round((cancelled / total) * 1000) / 10 : 0, byReason: rows.map((r) => ({ reason: r.cancelReason ?? 'Unspecified', count: r._count, value: decToNum(r._sum.grandTotal ?? 0) })).sort((a, b) => b.count - a.count) };
+  }
+
+  /**
+   * Conversion funnel over unique sessions: product view → add to bag →
+   * checkout → order. Source is first-touch (earliest event carrying a source),
+   * so a customer who arrived from a garment-tag QR (source "tag") is credited
+   * even if they bought later in the session.
+   */
+  async funnel(from: Date, to: Date, tryOnDailyLimit: number): Promise<FunnelDto> {
+    const range = Prisma.sql`e."createdAt" >= ${from} AND e."createdAt" < ${to}`;
+    const steps = ['PRODUCT_VIEW', 'ADD_TO_CART', 'CHECKOUT_STARTED', 'ORDER_PLACED'] as const;
+    const counts = await this.prisma.$queryRaw<{ type: string; sessions: bigint }[]>`
+      SELECT e.type::text, count(DISTINCT e."sessionId")::bigint AS sessions FROM analytics_events e WHERE ${range} GROUP BY e.type`;
+    const n = (t: string) => Number(counts.find((c) => c.type === t)?.sessions ?? 0);
+    const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+    const stepDtos = steps.map((s, i) => ({
+      step: s, sessions: n(s),
+      rateFromPrevious: i === 0 ? null : pct(n(s), n(steps[i - 1]!)),
+      rateFromStart: i === 0 ? null : pct(n(s), n(steps[0])),
+    }));
+
+    const [byDevice, bySource, products, tryOn, daily, usedToday] = await Promise.all([
+      this.prisma.$queryRaw<{ device: string; sessions: bigint; orders: bigint }[]>`
+        SELECT coalesce(s.device, 'unknown') AS device, count(*)::bigint AS sessions, count(*) FILTER (WHERE s.ordered)::bigint AS orders
+          FROM (SELECT e."sessionId", max(e.device) AS device, bool_or(e.type = 'ORDER_PLACED') AS ordered FROM analytics_events e WHERE ${range} GROUP BY e."sessionId") s
+         GROUP BY 1 ORDER BY sessions DESC`,
+      this.prisma.$queryRaw<{ source: string; sessions: bigint; orders: bigint; revenue: Prisma.Decimal | null }[]>`
+        WITH s AS (
+          SELECT e."sessionId",
+                 (array_agg(e.source ORDER BY e."createdAt") FILTER (WHERE e.source IS NOT NULL))[1] AS source,
+                 count(*) FILTER (WHERE e.type = 'ORDER_PLACED') AS orders,
+                 sum(e.value) FILTER (WHERE e.type = 'ORDER_PLACED') AS revenue
+            FROM analytics_events e WHERE ${range} GROUP BY e."sessionId")
+        SELECT coalesce(source, 'direct') AS source, count(*)::bigint AS sessions, count(*) FILTER (WHERE orders > 0)::bigint AS orders, sum(revenue) AS revenue
+          FROM s GROUP BY 1 ORDER BY sessions DESC LIMIT 20`,
+      this.prisma.$queryRaw<{ productId: string; name: string; views: bigint; carts: bigint; tryons: bigint }[]>`
+        SELECT e."productId", max(p.name) AS name,
+               count(DISTINCT e."sessionId") FILTER (WHERE e.type = 'PRODUCT_VIEW')::bigint AS views,
+               count(DISTINCT e."sessionId") FILTER (WHERE e.type = 'ADD_TO_CART')::bigint AS carts,
+               count(*) FILTER (WHERE e.type = 'TRY_ON')::bigint AS tryons
+          FROM analytics_events e JOIN products p ON p.id = e."productId"
+         WHERE ${range} AND e."productId" IS NOT NULL GROUP BY e."productId" ORDER BY views DESC LIMIT 50`,
+      this.prisma.$queryRaw<{ total: bigint; sessions: bigint; ordered: bigint }[]>`
+        SELECT count(*)::bigint AS total, count(DISTINCT e."sessionId")::bigint AS sessions,
+               count(DISTINCT e."sessionId") FILTER (WHERE EXISTS (SELECT 1 FROM analytics_events o WHERE o."sessionId" = e."sessionId" AND o.type = 'ORDER_PLACED' AND o."createdAt" >= e."createdAt"))::bigint AS ordered
+          FROM analytics_events e WHERE ${range} AND e.type = 'TRY_ON'`,
+      this.prisma.$queryRaw<{ day: Date; sessions: bigint; orders: bigint }[]>`
+        SELECT date_trunc('day', e."createdAt" AT TIME ZONE 'Asia/Kolkata') AS day, count(DISTINCT e."sessionId")::bigint AS sessions,
+               count(DISTINCT e."orderId") FILTER (WHERE e.type = 'ORDER_PLACED')::bigint AS orders
+          FROM analytics_events e WHERE ${range} GROUP BY 1 ORDER BY 1`,
+      this.prisma.analyticsEvent.count({ where: { type: 'TRY_ON', createdAt: { gte: this.startOfIstDay() } } }),
+    ]);
+    const t = tryOn[0];
+    return {
+      from: from.toISOString(), to: to.toISOString(), steps: stepDtos,
+      conversionRate: pct(n('ORDER_PLACED'), n('PRODUCT_VIEW')),
+      bagAbandonmentRate: n('ADD_TO_CART') ? Math.round((1 - n('CHECKOUT_STARTED') / n('ADD_TO_CART')) * 1000) / 10 : 0,
+      checkoutAbandonmentRate: n('CHECKOUT_STARTED') ? Math.round((1 - n('ORDER_PLACED') / n('CHECKOUT_STARTED')) * 1000) / 10 : 0,
+      byDevice: byDevice.map((d) => ({ device: d.device, sessions: Number(d.sessions), orders: Number(d.orders), conversionRate: pct(Number(d.orders), Number(d.sessions)) })),
+      bySource: bySource.map((s) => ({ source: s.source, sessions: Number(s.sessions), orders: Number(s.orders), conversionRate: pct(Number(s.orders), Number(s.sessions)), revenue: decToNum(s.revenue ?? 0) })),
+      products: products.map((p) => ({ productId: p.productId, name: p.name, views: Number(p.views), addToCart: Number(p.carts), viewToCartRate: pct(Number(p.carts), Number(p.views)), tryOns: Number(p.tryons) })),
+      tryOn: { total: Number(t?.total ?? 0), sessions: Number(t?.sessions ?? 0), sessionsThatOrdered: Number(t?.ordered ?? 0), conversionRate: pct(Number(t?.ordered ?? 0), Number(t?.sessions ?? 0)), dailyLimit: tryOnDailyLimit, usedToday },
+      daily: daily.map((d) => ({ date: d.day.toISOString().slice(0, 10), sessions: Number(d.sessions), orders: Number(d.orders) })),
+    };
   }
 
   /** COD health: share, confirmation rate, RTO rate and the PIN codes that refuse most. */

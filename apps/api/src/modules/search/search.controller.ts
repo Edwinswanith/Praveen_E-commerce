@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -13,6 +14,7 @@ import { EmbeddingService } from '../ai/embedding.service';
 import { MediaService } from '../media/media.service';
 import { csv } from '../products/product-query';
 import { SearchService } from './search.service';
+import { EventsService } from '../events/events.service';
 
 const searchQ = z.object({
   q: z.string().max(300).optional(), page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(60).default(24),
@@ -26,7 +28,7 @@ const searchQ = z.object({
 @OptionalAuth()
 @Controller()
 export class SearchController {
-  constructor(private readonly search: SearchService, private readonly categories: CategoriesService, private readonly prisma: PrismaService, private readonly media: MediaService) {}
+  constructor(private readonly search: SearchService, private readonly categories: CategoriesService, private readonly prisma: PrismaService, private readonly media: MediaService, private readonly events: EventsService) {}
 
   private async categoryIds(slug?: string) {
     if (!slug) return undefined;
@@ -36,7 +38,8 @@ export class SearchController {
   }
 
   @Get('search')
-  async text(@Query(new ZodPipe(searchQ)) q: z.infer<typeof searchQ>, @CurrentUser() u?: AuthUser) {
+  async text(@Req() req: Request, @Query(new ZodPipe(searchQ)) q: z.infer<typeof searchQ>, @CurrentUser() u?: AuthUser) {
+    if (q.q && q.page === 1) void this.events.record('SEARCH', this.events.context(req, u?.id));
     return this.search.text({ ...q, categoryIds: await this.categoryIds(q.category), sizes: csv(q.sizes), colors: csv(q.colors), inStock: q.inStock === 'true' }, { userId: u?.id });
   }
 

@@ -110,6 +110,14 @@ export type FitFeedback = (typeof FitFeedback)[keyof typeof FitFeedback];
 export const OtpPurpose = { LOGIN: 'LOGIN', COD_CONFIRM: 'COD_CONFIRM' } as const;
 export type OtpPurpose = (typeof OtpPurpose)[keyof typeof OtpPurpose];
 
+export const AnalyticsEventType = {
+  PRODUCT_VIEW: 'PRODUCT_VIEW', ADD_TO_CART: 'ADD_TO_CART', CHECKOUT_STARTED: 'CHECKOUT_STARTED', ORDER_PLACED: 'ORDER_PLACED',
+  SEARCH: 'SEARCH', TRY_ON: 'TRY_ON', QUICK_VIEW: 'QUICK_VIEW',
+} as const;
+export type AnalyticsEventType = (typeof AnalyticsEventType)[keyof typeof AnalyticsEventType];
+/** Events the browser may report; the rest are recorded server-side only (can't be faked). */
+export const CLIENT_EVENT_TYPES = ['PRODUCT_VIEW', 'CHECKOUT_STARTED', 'QUICK_VIEW'] as const;
+
 export const EmbeddingKind = { TEXT: 'TEXT', IMAGE: 'IMAGE' } as const;
 export type EmbeddingKind = (typeof EmbeddingKind)[keyof typeof EmbeddingKind];
 

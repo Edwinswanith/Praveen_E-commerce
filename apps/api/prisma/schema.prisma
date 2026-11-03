@@ -362,6 +362,36 @@ model CodBlockedPincode {
   @@map("cod_blocked_pincodes")
 }
 
+enum AnalyticsEventType {
+  PRODUCT_VIEW
+  ADD_TO_CART
+  CHECKOUT_STARTED
+  ORDER_PLACED
+  SEARCH
+  TRY_ON
+  QUICK_VIEW
+}
+
+/// First-party, cookie-less funnel analytics. sessionId is a random client id
+/// (no PII); events are kept 180 days.
+model AnalyticsEvent {
+  id        String             @id @default(cuid())
+  type      AnalyticsEventType
+  sessionId String
+  userId    String?
+  productId String?
+  orderId   String?
+  value     Decimal?           @db.Decimal(12, 2)
+  device    String? // mobile | desktop | tablet
+  source    String? // utm_source (e.g. tag, instagram, google)
+  createdAt DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([type, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([productId, type])
+  @@map("analytics_events")
+}
+
 model NewsletterSubscriber {
   id        String   @id @default(cuid())
   email     String   @unique

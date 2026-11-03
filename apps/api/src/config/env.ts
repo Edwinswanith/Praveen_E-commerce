@@ -59,6 +59,9 @@ const envSchema = z.object({
   EMBEDDING_DIMENSIONS: z.coerce.number().default(768),
   /** Gemini image model for AI product photography (uses GEMINI_API_KEY). */
   IMAGE_GEN_MODEL: z.string().default('gemini-3.1-flash-image'),
+  /** Virtual try-on cost controls (~$0.04 per try-on). */
+  TRYON_DAILY_LIMIT: z.coerce.number().int().min(0).default(200),
+  TRYON_PER_SESSION_DAILY: z.coerce.number().int().min(1).default(5),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(587),

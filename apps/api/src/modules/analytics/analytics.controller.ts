@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Res, StreamableFile } from '@nestjs/common';
+import { Controller, Get, Inject, Query, Res, StreamableFile } from '@nestjs/common';
+import { ENV, type Env } from '../../config/env';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import ExcelJS from 'exceljs';
@@ -19,7 +20,7 @@ const salesQ = range.and(z.object({ granularity: z.enum(['day', 'week', 'month']
 @RequirePermissions('analytics:read')
 @Controller('admin')
 export class AnalyticsController {
-  constructor(private readonly analytics: AnalyticsService) {}
+  constructor(private readonly analytics: AnalyticsService, @Inject(ENV) private readonly env: Env) {}
 
   @Get('dashboard')
   dashboard() {
@@ -44,6 +45,11 @@ export class AnalyticsController {
   @Get('analytics/cancellations')
   cancellations(@Query(new ZodPipe(range)) q: Range) {
     return this.analytics.cancellations(q.from, q.to);
+  }
+
+  @Get('analytics/funnel')
+  funnel(@Query(new ZodPipe(range)) q: Range) {
+    return this.analytics.funnel(q.from, q.to, this.env.TRYON_DAILY_LIMIT);
   }
 
   @Get('analytics/cod')

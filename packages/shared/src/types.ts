@@ -439,6 +439,31 @@ export interface PurchaseOrderDetailDto {
   items: { id: string; variantId: string; sku: string; productName: string; color: string; size: string; quantity: number; receivedQuantity: number; unitCost: number }[];
 }
 
+export interface TryOnResponse {
+  /** data: URL (image/webp). Generated in memory, never stored on our servers. */
+  image: string;
+  color: string;
+  disclaimer: string;
+  remainingToday: number;
+}
+
+export interface FunnelStepDto { step: 'PRODUCT_VIEW' | 'ADD_TO_CART' | 'CHECKOUT_STARTED' | 'ORDER_PLACED'; sessions: number; rateFromPrevious: number | null; rateFromStart: number | null }
+
+export interface FunnelDto {
+  from: string;
+  to: string;
+  steps: FunnelStepDto[];
+  /** Overall: sessions that ordered / sessions that viewed a product. */
+  conversionRate: number;
+  bagAbandonmentRate: number;
+  checkoutAbandonmentRate: number;
+  byDevice: { device: string; sessions: number; orders: number; conversionRate: number }[];
+  bySource: { source: string; sessions: number; orders: number; conversionRate: number; revenue: number }[];
+  products: { productId: string; name: string; views: number; addToCart: number; viewToCartRate: number; tryOns: number }[];
+  tryOn: { total: number; sessions: number; sessionsThatOrdered: number; conversionRate: number; dailyLimit: number; usedToday: number };
+  daily: { date: string; sessions: number; orders: number }[];
+}
+
 export interface OtpRequestResponse {
   phoneMasked: string;
   expiresInSeconds: number;

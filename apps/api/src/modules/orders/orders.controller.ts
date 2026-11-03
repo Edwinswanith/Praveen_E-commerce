@@ -18,6 +18,7 @@ import { ShippingService } from '../shipping/shipping.service';
 import { InvoiceService } from './invoice.service';
 import { loadExtras, toOrderSummary, toReturnDto } from './order.mappers';
 import { OrdersService } from './orders.service';
+import { EventsService } from '../events/events.service';
 
 const actorOf = (u: AuthUser) => ({ id: u.id, name: u.name });
 
@@ -26,7 +27,7 @@ const actorOf = (u: AuthUser) => ({ id: u.id, name: u.name });
 @OptionalAuth()
 @Controller()
 export class CheckoutController {
-  constructor(private readonly orders: OrdersService, private readonly carts: CartService, private readonly payments: PaymentsGateway, private readonly shipping: ShippingService, private readonly prisma: PrismaService) {}
+  constructor(private readonly orders: OrdersService, private readonly carts: CartService, private readonly payments: PaymentsGateway, private readonly shipping: ShippingService, private readonly prisma: PrismaService, private readonly events: EventsService) {}
 
   @Get('shipping/serviceability')
   serviceability(@Query(new ZodPipe(z.object({ pincode: pincodeSchema }))) q: { pincode: string }) {
@@ -50,8 +51,13 @@ export class CheckoutController {
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } }) @Post('checkout')
-  checkout(@Req() req: Request, @Body(new ZodPipe(checkoutSchema)) b: CheckoutInput, @CurrentUser() u?: AuthUser) {
-    return this.orders.checkout(this.carts.owner(req, u?.id), u ? { id: u.id, email: u.email, name: u.name } : undefined, b);
+  async checkout(@Req() req: Request, @Body(new ZodPipe(checkoutSchema)) b: CheckoutInput, @CurrentUser() u?: AuthUser) {
+    const r = await this.orders.checkout(this.carts.owner(req, u?.id), u ? { id: u.id, email: u.email, name: u.name } : undefined, b);
+    // Idempotent replays must not double-count: one ORDER_PLACED per order.
+    if (!(await this.prisma.analyticsEvent.findFirst({ where: { type: 'ORDER_PLACED', orderId: r.order.id }, select: { id: true } }))) {
+      void this.events.record('ORDER_PLACED', this.events.context(req, u?.id), { orderId: r.order.id, value: r.order.grandTotal });
+    }
+    return r;
   }
 
   @Throttle({ default: { limit: 20, ttl: 60_000 } }) @HttpCode(200) @Post('payments/verify')

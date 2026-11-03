@@ -45,6 +45,10 @@ import { MessagingService } from './common/messaging/messaging.service';
 import { OtpService } from './modules/otp/otp.service';
 import { CodService } from './modules/cod/cod.service';
 import { AdminCodController } from './modules/cod/cod.controller';
+import { EventsService } from './modules/events/events.service';
+import { EventsController } from './modules/events/events.controller';
+import { TryOnService } from './modules/tryon/tryon.service';
+import { TryOnController } from './modules/tryon/tryon.controller';
 
 /**
  * Modular monolith. Domain code lives in src/modules/<domain>; this module only
@@ -60,14 +64,14 @@ import { AdminCodController } from './modules/cod/cod.controller';
     CategoriesController, AdminCategoriesController, ProductsController, ReviewWriteController, AdminProductsController,
     InventoryController, BarcodesController, CartController, PublicCouponsController, WishlistController,
     CheckoutController, CustomerOrdersController, AdminOrdersController, SearchController, AdminAiController,
-    AnalyticsController, AdminCouponsController, AdminCustomersController, AdminCodController,
+    AnalyticsController, AdminCouponsController, AdminCustomersController, AdminCodController, EventsController, TryOnController,
   ],
   providers: [
     { provide: ENV, useFactory: () => loadEnv() },
     PrismaService, AuditService, MailService, StorageService, QueueService,
     TokenService, AuthService, CategoriesService, ProductsService, ProductImportService, BarcodesService, InventoryService,
     MediaService, EmbeddingService, CouponsService, CartService, PaymentsGateway, ShippingService, OrdersService, InvoiceService,
-    SearchService, AnalyticsService, MessagingService, OtpService, CodService, ImageGenService,
+    SearchService, AnalyticsService, MessagingService, OtpService, CodService, ImageGenService, EventsService, TryOnService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_INTERCEPTOR, useClass: EnvelopeInterceptor },
