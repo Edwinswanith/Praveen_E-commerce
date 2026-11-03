@@ -11,3 +11,10 @@ onlyBuiltDependencies:
   - esbuild
   - msgpackr-extract
   - unrs-resolver
+# Security overrides for transitive dependencies with published advisories
+# (pnpm audit, 2026-11-03). Each pinned version is at least two weeks old.
+overrides:
+  "next>sharp": "^0.35.5"
+  "next>postcss": "^8.5.31"
+  effect: "^3.22.3"
+  deepmerge-ts: "^8.0.2"

@@ -28,7 +28,7 @@ export class MediaService {
    */
   async processImage(input: Buffer, opts: { allowSvg?: boolean } = {}): Promise<ProcessedImage> {
     if (input.length > MAX_IMAGE_BYTES) throw badRequest('Images must be 10 MB or smaller');
-    let meta: sharp.Metadata;
+    let meta: Awaited<ReturnType<ReturnType<typeof sharp>['metadata']>>;
     try {
       meta = await sharp(input, { limitInputPixels: 40_000_000 }).metadata();
     } catch {
