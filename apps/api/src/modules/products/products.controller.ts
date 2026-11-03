@@ -1,11 +1,12 @@
 import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { memoryStorage } from 'multer';
 import { z } from 'zod';
 import {
-  paginationSchema, productListQuerySchema, productSchema, productUpdateSchema, reviewSchema,
-  type ProductInput, type ProductListQuery, type ReviewDto,
+  aiPhotoSchema, paginationSchema, productListQuerySchema, productSchema, productUpdateSchema, reviewSchema,
+  type AiPhotoInput, type ProductInput, type ProductListQuery, type ReviewDto,
 } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -15,6 +16,7 @@ import { badRequest, notFound } from '../../common/http/errors';
 import { StorageService } from '../../common/storage/storage.service';
 import { CurrentUser, Public, RequirePermissions, StaffOnly, type AuthUser } from '../auth/auth.decorators';
 import { EmbeddingService } from '../ai/embedding.service';
+import { buildPhotoPrompt, ImageGenService } from '../ai/image-gen.service';
 import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MediaService } from '../media/media.service';
 import { ProductsService } from './products.service';
 import { ProductImportService } from './import.service';
@@ -131,6 +133,7 @@ export class AdminProductsController {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly embeddings: EmbeddingService,
+    private readonly imageGen: ImageGenService,
   ) {}
 
   @RequirePermissions('catalog:read') @Get()
@@ -206,7 +209,44 @@ export class AdminProductsController {
       }));
     }
     await this.embeddings.enqueue(id);
-    return out.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height }));
+    return out.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated }));
+  }
+
+  /**
+   * AI studio photo. With `sourceImageId` (a real photo of the garment) Gemini
+   * restyles the presentation while keeping the garment identical; without it,
+   * it generates a representative image from product data (use for drafts/demo).
+   * Images are flagged aiGenerated and disclosed on the storefront.
+   */
+  @RequirePermissions('catalog:write') @Post(':id/images/generate') @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async generateImages(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(aiPhotoSchema)) body: AiPhotoInput) {
+    const product = await this.prisma.product.findFirst({
+      where: { id, deletedAt: null },
+      include: { category: true, attributes: true, images: true, variants: { where: { isActive: true }, select: { color: true }, take: 1 } },
+    });
+    if (!product) throw notFound('Product');
+    const source = body.sourceImageId ? product.images.find((i) => i.id === body.sourceImageId) : undefined;
+    if (body.sourceImageId && !source) throw notFound('Source image');
+    const color = body.color ?? source?.color ?? product.variants[0]?.color ?? 'neutral';
+    const subject = { name: product.name, gender: product.gender, category: product.category.name, color, description: product.description, attributes: Object.fromEntries(product.attributes.map((a) => [a.key, a.value])) };
+    const refs = source ? [{ data: await this.storage.get(source.storageKey), mimeType: source.mimeType }] : [];
+    const angles = (['front', 'detail'] as const).slice(0, body.count);
+    let order = product.images.length;
+    const created = [];
+    for (const angle of angles) {
+      const { prompt, style } = buildPhotoPrompt(subject, body.style, { hasReference: refs.length > 0, angle, notes: body.notes });
+      const img = await this.imageGen.generate(prompt, refs);
+      const s = await this.media.storeProductImage(id, img);
+      created.push(await this.prisma.productImage.create({
+        data: {
+          productId: id, storageKey: s.key, url: s.url, thumbUrl: s.thumbUrl, width: s.width, height: s.height, mimeType: 'image/webp', bytes: s.bytes, contentHash: s.hash,
+          color, alt: `${product.name} in ${color} (AI-styled ${style.toLowerCase()} photo)`, sortOrder: order++, aiGenerated: true, aiPrompt: `${this.imageGen.model}: ${prompt}`.slice(0, 4000),
+        },
+      }));
+    }
+    await this.embeddings.enqueue(id);
+    await this.audit.log({ actorId: u.id, action: 'product.image.ai_generate', entity: 'Product', entityId: id, after: { style: body.style, color, fromRealPhoto: !!source, count: created.length } });
+    return created.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated }));
   }
 
   @RequirePermissions('catalog:write') @Patch(':id/images/:imageId')
@@ -214,7 +254,7 @@ export class AdminProductsController {
     const img = await this.prisma.productImage.findFirst({ where: { id: imageId, productId: id } });
     if (!img) throw notFound('Image');
     const i = await this.prisma.productImage.update({ where: { id: imageId }, data: body });
-    return { id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height };
+    return { id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated };
   }
 
   @RequirePermissions('catalog:write') @Delete(':id/images/:imageId')

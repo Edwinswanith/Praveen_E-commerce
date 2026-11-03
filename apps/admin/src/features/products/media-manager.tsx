@@ -3,7 +3,8 @@ import * as React from 'react';
 import { toast } from 'sonner';
 import type { ProductImageDto, ProductVideoDto } from '@vyra/shared';
 import { Button, Spinner, cn } from '@vyra/ui';
-import { ArrowLeft, ArrowRight, GripVertical, ImagePlus, Trash2, Video } from 'lucide-react';
+import { ArrowLeft, ArrowRight, GripVertical, ImagePlus, Sparkles, Trash2, Video } from 'lucide-react';
+import { AiPhotoDialog } from './ai-photo-dialog';
 import { api, errorMessage } from '@/lib/api';
 import { useConfirm } from '@/components/ui/confirm';
 import { Select } from '@/components/ui/controls';
@@ -20,6 +21,7 @@ export function MediaManager({ productId, images, videos, colours, onChanged, ca
   const [uploading, setUploading] = React.useState(false);
   const [uploadColour, setUploadColour] = React.useState('');
   const [videoUploading, setVideoUploading] = React.useState(false);
+  const [aiOpen, setAiOpen] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const videoRef = React.useRef<HTMLInputElement>(null);
 
@@ -151,8 +153,10 @@ export function MediaManager({ productId, images, videos, colours, onChanged, ca
           </Select>
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" id="img-upload" onChange={(e) => void upload(e.target.files)} />
           <Button type="button" size="sm" variant="outline" loading={uploading} onClick={() => fileRef.current?.click()}>Choose images</Button>
+          <Button type="button" size="sm" variant="secondary" onClick={() => setAiOpen(true)}><Sparkles /> AI studio photo</Button>
         </div>
       )}
+      {canWrite && <AiPhotoDialog productId={productId} images={order} colours={colours} open={aiOpen} onOpenChange={setAiOpen} onDone={onChanged} />}
 
       {order.length === 0 ? (
         <p className="text-sm text-muted">No images yet. The first image is used as the product thumbnail.</p>
@@ -171,6 +175,7 @@ export function MediaManager({ productId, images, videos, colours, onChanged, ca
               <div className="relative aspect-[3/4] bg-surface-2">
                 <img src={img.thumbUrl || img.url} alt={img.alt} className="size-full object-cover" loading="lazy" />
                 {i === 0 && <span className="absolute left-2 top-2 rounded-sm bg-fg/85 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">Cover</span>}
+                {img.aiGenerated && <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-sm bg-violet-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"><Sparkles className="size-3" aria-hidden /> AI</span>}
                 {canWrite && <GripVertical className="absolute right-2 top-2 size-5 cursor-grab rounded-sm bg-bg/80 p-0.5 text-muted" aria-hidden />}
               </div>
               {canWrite ? (

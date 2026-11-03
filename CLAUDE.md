@@ -48,6 +48,7 @@ Behind an HTTP proxy, Node's fetch needs `NODE_USE_ENV_PROXY=1` (Gemini/Razorpay
 11. **COD orders cannot be packed until `codConfirmation = CONFIRMED`** (customer OTP or staff call). RTO goes through `OrdersService.markRto` (restocks + counts refusals per phone).
 12. **OTP login never trusts an unverified phone**: only accounts with `phoneVerifiedAt` can be signed into by OTP; OTPs are stored hashed and never logged in production.
 13. Exchanges are same-product, same-price swaps fulfilled by a zero-value replacement order. Never refund an exchange that has a replacement.
+15. AI product images are always stored with `aiGenerated = true` (disclosed on the storefront). Never generate children as models; for live products, generate only from a real photo of the garment (`sourceImageId`).
 14. `GET /admin/inventory/reconcile` must always report `consistent: true`; if it doesn't, something bypassed rule 1.
 
 ## Status

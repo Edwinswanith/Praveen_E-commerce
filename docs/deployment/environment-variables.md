@@ -23,6 +23,7 @@ Validated at boot by `apps/api/src/config/env.ts`, which refuses to start on inv
 | `COD_ENABLED` / `PAYMENT_RESERVATION_MINUTES` | | true / 30 | |
 | `SHIPPING_PROVIDER` | | manual | `shiprocket` needs `SHIPROCKET_EMAIL`, `SHIPROCKET_PASSWORD`, `SHIPROCKET_PICKUP_PINCODE` (+ `SHIPROCKET_PICKUP_LOCATION`) |
 | `EMBEDDING_PROVIDER` | | local | `gemini` needs `GEMINI_API_KEY`; `GEMINI_EMBEDDING_MODEL` (gemini-embedding-2), `EMBEDDING_DIMENSIONS` must stay 768 unless migrated |
+| `IMAGE_GEN_MODEL` | | gemini-3.1-flash-image | AI product photography (uses `GEMINI_API_KEY`); about $0.04 per image |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `MAIL_FROM` | | – | without SMTP, emails are recorded as `skipped` |
 | `SELLER_NAME` / `SELLER_GSTIN` / `SELLER_ADDRESS` / `SELLER_STATE` | prod | placeholders | printed on GST invoices; state decides CGST+SGST vs IGST |
 | `SMS_PROVIDER` | prod | console | `msg91` needs `MSG91_AUTH_KEY` + `MSG91_OTP_TEMPLATE_ID` (DLT-registered). `console` logs OTPs and echoes them to the client **in development only** |

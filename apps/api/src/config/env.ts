@@ -57,6 +57,8 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-2'),
   EMBEDDING_DIMENSIONS: z.coerce.number().default(768),
+  /** Gemini image model for AI product photography (uses GEMINI_API_KEY). */
+  IMAGE_GEN_MODEL: z.string().default('gemini-3.1-flash-image'),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(587),

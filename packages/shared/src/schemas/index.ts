@@ -279,6 +279,16 @@ export const staffUserSchema = z.object({
   role: z.enum(['ADMIN', 'INVENTORY_MANAGER', 'ORDER_MANAGER']),
 });
 
+export const aiPhotoSchema = z.object({
+  /** Existing product image of the REAL garment to restyle. Strongly recommended for live products. */
+  sourceImageId: cuid.optional(),
+  style: z.enum(['MODEL', 'STUDIO', 'FLATLAY', 'LIFESTYLE']).default('MODEL'),
+  color: z.string().trim().max(40).optional(),
+  notes: z.string().trim().max(300).optional(),
+  count: z.coerce.number().int().min(1).max(2).default(1),
+});
+export type AiPhotoInput = z.infer<typeof aiPhotoSchema>;
+
 export const codPincodeSchema = z.object({ pincode: pincodeSchema, reason: z.string().trim().max(200).optional() });
 export const codRiskUpdateSchema = z.object({ codBlocked: z.boolean(), note: z.string().trim().max(300).optional() });
 

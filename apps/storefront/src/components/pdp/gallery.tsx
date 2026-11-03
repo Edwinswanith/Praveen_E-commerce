@@ -164,6 +164,11 @@ export function Gallery({
             <track kind="captions" />
           </video>
         ) : null}
+        {current?.kind === 'image' && current.image.aiGenerated && (
+          <p className="pointer-events-none absolute bottom-3 left-3 rounded-sm bg-bg/90 px-2 py-1 text-[11px] font-medium text-muted shadow-sm">
+            AI-styled photo · actual product may vary slightly
+          </p>
+        )}
         {media.length > 1 && (
           <>
             <button

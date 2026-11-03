@@ -147,7 +147,7 @@ export class ProductsService {
       category: { id: p.category.id, name: p.category.name, slug: p.category.slug, path: await this.categories.path(p.categoryId) },
       attributes: Object.fromEntries(p.attributes.map((a) => [a.key, a.value])),
       sizeChart: (p.sizeChart as Record<string, Record<string, string>> | null) ?? null,
-      images: p.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt || p.name, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height })),
+      images: p.images.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt || p.name, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated })),
       videos: p.videos.map((v) => ({ id: v.id, url: v.url, posterUrl: v.posterUrl })),
       variants, fit: await this.fitSummary(p.id), seoTitle: p.seoTitle, seoDescription: p.seoDescription, createdAt: p.createdAt.toISOString(),
     };

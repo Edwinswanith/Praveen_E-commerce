@@ -16,7 +16,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsc -p tsconfig.build.json && node --env-file-if-exists=.env dist/src/seed/seed.js",
     "prisma:reset": "prisma migrate reset --force",
-    "openapi": "tsx scripts/export-openapi.ts"
+    "openapi": "tsx scripts/export-openapi.ts",
+    "photos:generate": "tsc -p tsconfig.build.json && node --env-file-if-exists=.env dist/src/seed/generate-photos.js"
   },
   "prisma": {
     "seed": "node --env-file-if-exists=.env dist/src/seed/seed.js"

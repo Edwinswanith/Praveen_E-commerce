@@ -23,6 +23,7 @@ Last verified: 2026-11-03 (v1.1). Totals: **157 automated tests** (shared 21, AP
 | Ledger reconciliation endpoint | ✅ Done | API test detects a rogue edit; seeded DB: 389/389 consistent |
 | Backups + restore drill scripts | ✅ Done | run against the dev DB (dump → scratch restore → checks) |
 | Sentry error reporting (API, PII-stripped) | ✅ Done (**pending DSN**) | wiring only |
+| AI product photography: Gemini `gemini-3.1-flash-image`; admin "AI studio photo" restyles a real garment photo; demo catalogue regenerated; storefront disclosure | ✅ Done | stubbed integration tests (garment lock, AI flag, no child models, permission) + live generation of the demo catalogue |
 | Playwright E2E suite + CI e2e job | ✅ Done | 6/6 locally; CI job not yet run on GitHub |
 
 ## Module checklist
@@ -55,7 +56,7 @@ Last verified: 2026-11-03 (v1.1). Totals: **157 automated tests** (shared 21, AP
 5. No global admin search endpoint: the top bar queries products/orders/customers separately.
 6. Changing a category's 3-letter code does not change existing SKUs (by design: SKUs are printed on labels). New products use the new code.
 7. GST slab logic (5% ≤ ₹2,500 per piece, else 18%, prices inclusive) must be confirmed by a CA. HSN codes are per product.
-8. Seed product imagery is generated illustration. Real photography is needed before launch.
+8. Demo catalogue images are AI-generated from product text (`pnpm --filter @vyra/api photos:generate`). They are realistic but **do not depict real stock**: before launch, photograph each real garment (a phone photo is enough) and use admin → product → "AI studio photo" to turn it into catalogue shots.
 9. The in-memory mock payment provider loses pending mock orders on API restart (dev only).
 
 ## Required external configuration

@@ -527,6 +527,10 @@ model ProductImage {
   bytes      Int
   /// sha256 of original bytes; embedding regenerated when it changes
   contentHash String
+  /// True when produced by AI image generation (disclosed to customers).
+  aiGenerated Boolean  @default(false)
+  /// Generation prompt/model, for audit and regeneration.
+  aiPrompt    String?
   createdAt  DateTime @default(now()) @db.Timestamptz(3)
 
   embeddings ProductEmbedding[]

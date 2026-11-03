@@ -202,4 +202,6 @@ Permission strings are `resource:action`. Role grants live in `apps/api/src/modu
 | `GET /admin/analytics/cod?from&to` → `CodAnalyticsDto` | `analytics:read` |
 | `GET /admin/analytics/return-rates?from&to` → `ProductReturnRateDto[]` | `analytics:read` |
 | `GET /admin/customers/:id` now `CustomerDetailDto` (adds `stats.rto`, `codRisk`) | `customers:read` |
+| `POST /admin/products/:id/images/generate` body `aiPhotoSchema` `{ sourceImageId?, style: MODEL\|STUDIO\|FLATLAY\|LIFESTYLE, color?, notes?, count: 1\|2 }` → `ProductImageDto[]` (`aiGenerated: true`). With `sourceImageId` the real garment is kept exactly; kids items never use a generated child model | `catalog:write` |
+
 Typed admin DTOs now exist for suppliers, purchase orders, scan history, staff users, audit logs and customer detail (`packages/shared/src/types.ts`).

@@ -52,6 +52,8 @@ export interface ProductImageDto {
   sortOrder: number;
   width: number | null;
   height: number | null;
+  /** AI-generated/styled image: storefront shows a disclosure. */
+  aiGenerated: boolean;
 }
 
 export interface ProductVideoDto { id: string; url: string; posterUrl: string | null }
