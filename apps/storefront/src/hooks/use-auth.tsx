@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import useSWR, { useSWRConfig } from 'swr';
-import type { LoginInput, RegisterInput, SessionUser } from '@vyra/shared';
+import type { LoginInput, OtpVerifyResponse, RegisterInput, SessionUser } from '@vyra/shared';
 import { api, ApiError } from '@/lib/api';
 
 interface AuthContextValue {
@@ -11,9 +11,18 @@ interface AuthContextValue {
   loading: boolean;
   login: (input: LoginInput) => Promise<SessionUser>;
   register: (input: RegisterInput) => Promise<SessionUser>;
+  /** POST /auth/otp/verify: signs in (or signs up) with a phone OTP. */
+  verifyOtp: (input: OtpVerifyInput) => Promise<OtpVerifyResponse>;
   logout: () => Promise<void>;
   setUser: (u: SessionUser) => void;
   refresh: () => Promise<unknown>;
+}
+
+export interface OtpVerifyInput {
+  phone: string;
+  code: string;
+  name?: string;
+  marketingOptIn?: boolean;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
@@ -61,6 +70,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await mutate(u, { revalidate: false });
         await afterSessionChange();
         return u;
+      },
+      async verifyOtp(input) {
+        const res = await api<OtpVerifyResponse>('/auth/otp/verify', {
+          method: 'POST',
+          body: input,
+        });
+        await mutate(res.user, { revalidate: false });
+        await afterSessionChange();
+        return res;
       },
       async logout() {
         try {

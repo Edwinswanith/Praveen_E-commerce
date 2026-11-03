@@ -14,7 +14,7 @@ import { applyApiErrors, parseOrSetErrors } from '@/lib/forms';
 import { useAuth } from '@/features/auth/auth-context';
 import { PERM } from '@/lib/permissions';
 import { useUrlState } from '@/hooks/use-url-state';
-import type { AuditLogDto, StaffUserDto } from '@/lib/types';
+import type { AuditLogDto, StaffUserDto } from '@vyra/shared';
 import { formatDateTime, formatNumber, humanize } from '@/lib/format';
 import { DataTable } from '@/components/data-table/data-table';
 import { Pagination } from '@/components/data-table/pagination';
@@ -181,10 +181,9 @@ function AuditTab() {
   const [open, setOpen] = React.useState<AuditLogDto | null>(null);
   const columns = React.useMemo<ColumnDef<AuditLogDto, unknown>[]>(() => [
     { header: 'When', accessorKey: 'createdAt', cell: ({ row }) => <span className="whitespace-nowrap text-xs text-muted">{formatDateTime(row.original.createdAt)}</span> },
-    { header: 'Actor', id: 'actor', cell: ({ row }) => row.original.actorName ?? row.original.actor?.name ?? 'System' },
+    { header: 'Actor', id: 'actor', cell: ({ row }) => row.original.actorName ?? 'System' },
     { header: 'Action', accessorKey: 'action', cell: ({ row }) => <span className="font-mono text-xs">{row.original.action}</span> },
     { header: 'Entity', accessorKey: 'entity', cell: ({ row }) => <span className="text-xs">{row.original.entity}{row.original.entityId && <span className="block font-mono text-muted">{row.original.entityId}</span>}</span> },
-    { header: 'IP', accessorKey: 'ip', cell: ({ row }) => <span className="font-mono text-xs text-muted">{row.original.ip ?? '—'}</span> },
   ], []);
   return (
     <>
@@ -198,7 +197,7 @@ function AuditTab() {
         footer={<Pagination meta={meta} onPageChange={setPage} />} />
       {open && (
         <Sheet open onOpenChange={(o) => !o && setOpen(null)} title={open.action} description={`${open.entity}${open.entityId ? ` · ${open.entityId}` : ''}`}>
-          <p className="mb-3 text-sm text-muted">{formatDateTime(open.createdAt)} · {open.actorName ?? open.actor?.name ?? 'System'}</p>
+          <p className="mb-3 text-sm text-muted">{formatDateTime(open.createdAt)} · {open.actorName ?? 'System'}</p>
           <div className="space-y-3">
             {(['before', 'after'] as const).map((k) => (
               <div key={k}>

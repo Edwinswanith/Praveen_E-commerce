@@ -107,3 +107,67 @@ export function RefundDialog({ orderId, maxAmount, onClose, onDone }: { orderId:
     </Dialog>
   );
 }
+
+export function ConfirmCodDialog({ orderId, number, phone, onClose, onDone }: { orderId: string; number: string; phone: string | null; onClose: () => void; onDone: () => void }) {
+  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<{ note: string }>({ defaultValues: { note: '' } });
+  const submit = handleSubmit(async (v) => {
+    const note = v.note.trim();
+    if (note.length > 300) { setError('note', { message: 'Keep the note under 300 characters' }); return; }
+    try {
+      await api.post(`/orders/${orderId}/confirm-cod`, note ? { note } : {});
+      toast.success(`COD order ${number} confirmed`);
+      onDone();
+    } catch (err) {
+      if (!applyApiErrors(err, setError)) setError('root.server', { message: errorMessage(err) });
+    }
+  });
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={`Confirm COD order ${number}?`}
+      description={`Only confirm after speaking to the customer${phone ? ` on ${phone}` : ''} and checking they will accept and pay for the parcel.`}
+      footer={<><Button variant="ghost" size="sm" onClick={onClose}>Not yet</Button><Button size="sm" loading={isSubmitting} onClick={() => void submit()}>Mark confirmed</Button></>}>
+      <form onSubmit={submit} noValidate className="space-y-3">
+        {errors.root?.server && <Alert tone="danger">{errors.root.server.message}</Alert>}
+        <Field label="Call note (optional)" htmlFor="cod-note" error={errors.note?.message} hint="e.g. “Called 3:40pm, customer confirmed address and amount.”">
+          <Textarea id="cod-note" rows={3} autoFocus invalid={!!errors.note} {...register('note')} />
+        </Field>
+      </form>
+    </Dialog>
+  );
+}
+
+export function RtoDialog({ orderId, number, paymentMethod, onClose, onDone }: { orderId: string; number: string; paymentMethod: string; onClose: () => void; onDone: () => void }) {
+  const { register, handleSubmit, setError, formState: { errors, isSubmitting } } = useForm<{ note: string }>({ defaultValues: { note: '' } });
+  const submit = handleSubmit(async (v) => {
+    const note = v.note.trim();
+    if (note.length < 3) { setError('note', { message: 'Describe why the parcel came back (e.g. “Customer refused at door”)' }); return; }
+    if (note.length > 500) { setError('note', { message: 'Keep the note under 500 characters' }); return; }
+    try {
+      await api.post(`/orders/${orderId}/status`, { status: 'RTO', note });
+      toast.success(`Order ${number} marked returned to origin`);
+      onDone();
+    } catch (err) {
+      if (!applyApiErrors(err, setError)) setError('root.server', { message: errorMessage(err) });
+    }
+  });
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={`Mark ${number} returned to origin?`}
+      description="Use this only when the courier has brought the undelivered parcel back to the warehouse."
+      footer={<><Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button><Button variant="danger" size="sm" loading={isSubmitting} onClick={() => void submit()}>Mark RTO</Button></>}>
+      <form onSubmit={submit} noValidate className="space-y-3">
+        {errors.root?.server && <Alert tone="danger">{errors.root.server.message}</Alert>}
+        <Alert tone="warning">
+          <ul className="list-disc space-y-0.5 pl-4">
+            <li>All items on this order are restocked into sellable inventory.</li>
+            {paymentMethod === 'COD'
+              ? <li>A COD refusal is counted against the customer&apos;s phone number. Repeat refusals block Cash on Delivery for that phone.</li>
+              : <li>This is a prepaid order: issue a refund to the customer after marking RTO.</li>}
+            <li>This cannot be undone.</li>
+          </ul>
+        </Alert>
+        <Field label="Note (required)" htmlFor="rto-note" error={errors.note?.message}>
+          <Textarea id="rto-note" rows={3} autoFocus invalid={!!errors.note} placeholder="Customer refused delivery / address not found…" {...register('note')} />
+        </Field>
+      </form>
+    </Dialog>
+  );
+}

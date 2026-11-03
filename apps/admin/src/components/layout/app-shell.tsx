@@ -82,7 +82,7 @@ function UserMenu() {
       <MenuContent className="w-60">
         <MenuLabel>
           <span className="block truncate font-medium text-fg">{user.name}</span>
-          <span className="block truncate">{user.email}</span>
+          <span className="block truncate">{user.email ?? user.phone ?? ''}</span>
         </MenuLabel>
         <MenuSeparator />
         <MenuItem onSelect={() => void logout()}><LogOut /> Sign out</MenuItem>

@@ -56,7 +56,7 @@ export function GlobalSearch() {
       }
       if (can(PERM.customersRead)) {
         tasks.push(api.get<CustomerSummaryDto[]>('/customers', { q: term, pageSize: 5 }, ctrl.signal).then((rows) =>
-          rows.map((c) => ({ id: c.id, group: 'Customers' as const, title: c.name, subtitle: c.email, href: `/customers/${c.id}` }))));
+          rows.map((c) => ({ id: c.id, group: 'Customers' as const, title: c.name, subtitle: c.email ?? c.phone ?? '', href: `/customers/${c.id}` }))));
       }
       const settled = await Promise.allSettled(tasks);
       if (ctrl.signal.aborted) return;

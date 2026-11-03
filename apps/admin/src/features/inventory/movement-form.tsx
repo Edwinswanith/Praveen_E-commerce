@@ -9,7 +9,7 @@ import { Minus, Plus } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { applyApiErrors, blankToNull, parseOrSetErrors } from '@/lib/forms';
 import { useApi } from '@/lib/swr';
-import type { SupplierDto } from '@/lib/types';
+import type { SupplierDto } from '@vyra/shared';
 import { Segmented, Select } from '@/components/ui/controls';
 import { formatNumber } from '@/lib/format';
 

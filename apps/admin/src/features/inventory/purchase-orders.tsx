@@ -11,7 +11,8 @@ import { ArrowLeft, ClipboardList, PackageCheck, Plus, Trash2 } from 'lucide-rea
 import { useApi } from '@/lib/swr';
 import { api, ApiError, errorMessage } from '@/lib/api';
 import { flattenFieldErrors } from '@/lib/forms';
-import type { PurchaseOrderDto, SupplierDto } from '@/lib/types';
+import type { PurchaseOrderSummaryDto, SupplierDto } from '@vyra/shared';
+import type { PurchaseOrderDetailDto } from '@/lib/types';
 import { formatDate, formatDateTime, formatINR, formatNumber, humanize } from '@/lib/format';
 import { DataTable } from '@/components/data-table/data-table';
 import { Pagination } from '@/components/data-table/pagination';
@@ -23,23 +24,22 @@ import { VariantPicker } from './variant-picker';
 const PO_TONE: Record<string, 'neutral' | 'info' | 'warning' | 'success' | 'danger'> = {
   DRAFT: 'neutral', ORDERED: 'info', PARTIALLY_RECEIVED: 'warning', RECEIVED: 'success', CANCELLED: 'danger',
 };
-const poTotal = (po: PurchaseOrderDto) => po.totalCost ?? (po.items ?? []).reduce((s, i) => s + i.quantity * i.unitCost, 0);
 const backLink = <Link href="/inventory/purchase-orders" className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-fg"><ArrowLeft className="size-3.5" /> Purchase orders</Link>;
 
-const listColumns: ColumnDef<PurchaseOrderDto, unknown>[] = [
-  { header: 'PO', id: 'number', cell: ({ row }) => <span className="font-medium">{row.original.number ?? row.original.id.slice(-8).toUpperCase()}</span> },
-  { header: 'Supplier', id: 'supplier', cell: ({ row }) => row.original.supplier?.name ?? row.original.supplierName ?? '—' },
+const listColumns: ColumnDef<PurchaseOrderSummaryDto, unknown>[] = [
+  { header: 'PO', id: 'number', cell: ({ row }) => <span className="font-medium">{row.original.number}</span> },
+  { header: 'Supplier', id: 'supplier', cell: ({ row }) => row.original.supplierName },
   { header: 'Reference', accessorKey: 'reference', cell: ({ row }) => <span className="font-mono text-xs">{row.original.reference ?? '—'}</span> },
   { header: 'Status', accessorKey: 'status', cell: ({ row }) => <Badge tone={PO_TONE[row.original.status] ?? 'neutral'}>{humanize(row.original.status)}</Badge> },
-  { header: 'Items', id: 'items', meta: { align: 'right' }, cell: ({ row }) => formatNumber(row.original.itemCount ?? row.original.items?.length ?? 0) },
-  { header: 'Total', id: 'total', meta: { align: 'right' }, cell: ({ row }) => formatINR(poTotal(row.original)) },
-  { header: 'Created', accessorKey: 'createdAt', cell: ({ row }) => <span className="text-muted">{formatDate(row.original.orderedAt ?? row.original.createdAt)}</span> },
+  { header: 'Items', id: 'items', meta: { align: 'right' }, cell: ({ row }) => formatNumber(row.original.itemCount) },
+  { header: 'Total', id: 'total', meta: { align: 'right' }, cell: ({ row }) => formatINR(row.original.totalCost) },
+  { header: 'Ordered', accessorKey: 'orderedAt', cell: ({ row }) => <span className="text-muted">{formatDate(row.original.orderedAt)}</span> },
 ];
 
 export function PurchaseOrdersList() {
   const router = useRouter();
   const [page, setPage] = React.useState(1);
-  const { data, meta, error, isLoading, mutate } = useApi<PurchaseOrderDto[]>('/purchase-orders', { page, pageSize: 20 });
+  const { data, meta, error, isLoading, mutate } = useApi<PurchaseOrderSummaryDto[]>('/purchase-orders', { page, pageSize: 20 });
   return (
     <>
       <PageHeader title="Purchase orders" description="Order stock from suppliers and receive it into inventory." actions={<Button asChild size="sm"><Link href="/inventory/purchase-orders/new"><Plus /> New purchase order</Link></Button>} />
@@ -85,7 +85,7 @@ export function PurchaseOrderCreate() {
     setErrors([]);
     setSaving(true);
     try {
-      const po = await api.post<PurchaseOrderDto>('/purchase-orders', parsed.data);
+      const po = await api.post<{ id: string }>('/purchase-orders', parsed.data);
       toast.success('Purchase order created');
       router.replace(`/inventory/purchase-orders/${po.id}`);
     } catch (err) {
@@ -144,7 +144,7 @@ export function PurchaseOrderCreate() {
 }
 
 export function PurchaseOrderDetail({ id }: { id: string }) {
-  const { data: po, error, isLoading, mutate } = useApi<PurchaseOrderDto>(`/purchase-orders/${id}`);
+  const { data: po, error, isLoading, mutate } = useApi<PurchaseOrderDetailDto>(`/purchase-orders/${id}`);
   const confirm = useConfirm();
   const [receive, setReceive] = React.useState<Record<string, string>>({});
   const [saving, setSaving] = React.useState(false);
@@ -183,7 +183,7 @@ export function PurchaseOrderDetail({ id }: { id: string }) {
         actions={outstanding.length > 0 && <Button size="sm" loading={saving} disabled={!toReceive.length || invalid} onClick={() => void submitReceive()}><PackageCheck /> Receive selected</Button>} />
       <div className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2 overflow-hidden">
-          <CardHeader><CardTitle>Items</CardTitle><span className="tabular text-sm font-semibold">{formatINR(poTotal(po))}</span></CardHeader>
+          <CardHeader><CardTitle>Items</CardTitle><span className="tabular text-sm font-semibold">{formatINR(po.totalCost)}</span></CardHeader>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-surface text-xs text-muted"><tr><th className="px-4 py-2 text-left font-medium">Variant</th><th className="px-3 py-2 text-right font-medium">Ordered</th><th className="px-3 py-2 text-right font-medium">Received</th><th className="px-3 py-2 text-right font-medium">Unit cost</th><th className="px-4 py-2 text-right font-medium">Receive now</th></tr></thead>
@@ -215,7 +215,7 @@ export function PurchaseOrderDetail({ id }: { id: string }) {
           <CardHeader><CardTitle>Details</CardTitle></CardHeader>
           <CardContent>
             <KeyValue items={[
-              { label: 'Supplier', value: po.supplier?.name ?? po.supplierName ?? '—' },
+              { label: 'Supplier', value: po.supplier?.name ?? '—' },
               { label: 'Reference', value: po.reference ?? '—' },
               { label: 'Ordered', value: formatDateTime(po.orderedAt ?? po.createdAt) },
               { label: 'Received', value: po.receivedAt ? formatDateTime(po.receivedAt) : '—' },

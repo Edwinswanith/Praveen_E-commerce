@@ -53,3 +53,50 @@ export function recallOrder(number: string): OrderDetailDto | null {
     return null;
   }
 }
+
+const COD_OTP_PREFIX = 'vyra_cod_otp:';
+
+export interface CodOtpHint {
+  phoneMasked: string;
+  expiresInSeconds: number;
+  devCode?: string;
+  /** epoch ms when the code was sent (for the resend countdown). */
+  sentAt: number;
+  /** Seconds after sentAt before a resend is allowed. */
+  resendAfterSeconds: number;
+}
+
+/** Keeps the "confirm your COD order" step across a refresh of the confirmation page. */
+export function rememberCodOtp(number: string, hint: CodOtpHint): void {
+  try {
+    sessionStorage.setItem(COD_OTP_PREFIX + number, JSON.stringify(hint));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function recallCodOtp(number: string): CodOtpHint | null {
+  try {
+    const raw = sessionStorage.getItem(COD_OTP_PREFIX + number);
+    if (!raw) return null;
+    const h = JSON.parse(raw) as Partial<CodOtpHint>;
+    if (typeof h.phoneMasked !== 'string' || typeof h.sentAt !== 'number') return null;
+    return {
+      phoneMasked: h.phoneMasked,
+      expiresInSeconds: typeof h.expiresInSeconds === 'number' ? h.expiresInSeconds : 300,
+      devCode: typeof h.devCode === 'string' ? h.devCode : undefined,
+      sentAt: h.sentAt,
+      resendAfterSeconds: typeof h.resendAfterSeconds === 'number' ? h.resendAfterSeconds : 30,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function clearCodOtp(number: string): void {
+  try {
+    sessionStorage.removeItem(COD_OTP_PREFIX + number);
+  } catch {
+    /* ignore */
+  }
+}

@@ -1,4 +1,4 @@
-import type { OrderStatus, PaymentStatus, ReturnStatus } from '@vyra/shared';
+import type { OrderStatus, PaymentStatus, ReturnStatus, SessionUser } from '@vyra/shared';
 
 export { formatINR } from '@vyra/shared';
 
@@ -41,6 +41,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
   RETURNED: 'Returned',
+  RTO: 'Returned to sender',
 };
 
 export const ORDER_STATUS_TONE: Record<
@@ -55,6 +56,7 @@ export const ORDER_STATUS_TONE: Record<
   DELIVERED: 'success',
   CANCELLED: 'danger',
   RETURNED: 'neutral',
+  RTO: 'danger',
 };
 
 export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
@@ -72,7 +74,23 @@ export const RETURN_STATUS_LABEL: Record<ReturnStatus, string> = {
   REJECTED: 'Rejected',
   RECEIVED: 'Received',
   REFUNDED: 'Refunded',
+  EXCHANGED: 'Exchanged',
 };
+
+export const RETURN_STATUS_TONE: Record<ReturnStatus, 'success' | 'info' | 'danger'> = {
+  REQUESTED: 'info',
+  APPROVED: 'info',
+  REJECTED: 'danger',
+  RECEIVED: 'info',
+  REFUNDED: 'success',
+  EXCHANGED: 'success',
+};
+
+export const FIT_LABEL = {
+  RUNS_SMALL: 'Runs small',
+  TRUE_TO_SIZE: 'True to size',
+  RUNS_LARGE: 'Runs large',
+} as const;
 
 export const RETURN_REASONS = [
   { value: 'SIZE_ISSUE', label: 'Size or fit issue' },
@@ -85,4 +103,16 @@ export const RETURN_REASONS = [
 
 export function pluralize(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "+91 98765 43210" for a 10-digit Indian mobile; anything else unchanged. */
+export function formatPhone(phone: string): string {
+  const d = phone.replace(/\D/g, '').replace(/^91(?=\d{10}$)/, '');
+  return /^\d{10}$/.test(d) ? `+91 ${d.slice(0, 5)} ${d.slice(5)}` : phone;
+}
+
+/** What to show under the name in account menus: email, or phone for phone-only accounts. */
+export function userContact(user: Pick<SessionUser, 'email' | 'phone'>): string {
+  if (user.email) return user.email;
+  return user.phone ? formatPhone(user.phone) : '';
 }

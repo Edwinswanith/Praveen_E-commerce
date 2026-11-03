@@ -1,4 +1,4 @@
-import type { OrderStatus, PaymentStatus, ProductStatus, ReturnStatus, ShipmentStatus, RefundStatus } from '@vyra/shared';
+import type { OrderStatus, PaymentStatus, ProductStatus, ReturnStatus, ReturnType, ShipmentStatus, RefundStatus } from '@vyra/shared';
 
 export type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'violet' | 'brand' | 'teal' | 'sun';
 
@@ -11,6 +11,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
   RETURNED: 'Returned',
+  RTO: 'Returned to origin (RTO)',
 };
 
 export const ORDER_STATUS_TONE: Record<OrderStatus, Tone> = {
@@ -22,6 +23,7 @@ export const ORDER_STATUS_TONE: Record<OrderStatus, Tone> = {
   DELIVERED: 'success',
   CANCELLED: 'neutral',
   RETURNED: 'danger',
+  RTO: 'danger',
 };
 
 export const PRODUCT_STATUS_TONE: Record<ProductStatus, Tone> = { DRAFT: 'neutral', ACTIVE: 'success', ARCHIVED: 'warning' };
@@ -31,7 +33,7 @@ export const PAYMENT_STATUS_TONE: Record<PaymentStatus, Tone> = {
 };
 
 export const RETURN_STATUS_TONE: Record<ReturnStatus, Tone> = {
-  REQUESTED: 'warning', APPROVED: 'info', REJECTED: 'neutral', RECEIVED: 'info', REFUNDED: 'success',
+  REQUESTED: 'warning', APPROVED: 'info', REJECTED: 'neutral', RECEIVED: 'info', REFUNDED: 'success', EXCHANGED: 'success',
 };
 
 export const SHIPMENT_STATUS_TONE: Record<ShipmentStatus, Tone> = {
@@ -45,3 +47,6 @@ export const STOCK_STATUS: Record<'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK', { l
   LOW_STOCK: { label: 'Low stock', tone: 'warning' },
   OUT_OF_STOCK: { label: 'Out of stock', tone: 'danger' },
 };
+
+export const RETURN_TYPE_LABEL: Record<ReturnType, string> = { RETURN: 'Return', EXCHANGE: 'Exchange' };
+export const RETURN_TYPE_TONE: Record<ReturnType, Tone> = { RETURN: 'neutral', EXCHANGE: 'violet' };

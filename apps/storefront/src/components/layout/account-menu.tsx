@@ -7,6 +7,7 @@ import * as DM from '@radix-ui/react-dropdown-menu';
 import { LogOut, MapPin, Package, RotateCcw, Truck, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
+import { userContact } from '@/lib/format';
 
 const itemCls =
   'flex cursor-pointer items-center gap-2.5 rounded-sm px-3 py-2 text-sm text-fg outline-none data-[highlighted]:bg-surface-2';
@@ -35,7 +36,7 @@ export function AccountMenu() {
             <>
               <div className="px-3 py-2">
                 <p className="text-sm font-bold">Hello, {user.name.split(' ')[0]}</p>
-                <p className="truncate text-xs text-muted">{user.email}</p>
+                <p className="truncate text-xs text-muted">{userContact(user)}</p>
               </div>
               <DM.Separator className="my-1 h-px bg-border" />
               <DM.Item asChild className={itemCls}>

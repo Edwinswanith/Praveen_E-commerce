@@ -1,22 +1,9 @@
 /**
  * Admin-only response shapes that are NOT defined in @vyra/shared types.ts.
- * Fields are read defensively; see the final report for contract gaps.
+ * Shared admin DTOs (SupplierDto, StaffUserDto, AuditLogDto, CustomerDetailDto, ScanHistoryDto,
+ * PurchaseOrderSummaryDto, Cod*) are imported from @vyra/shared directly.
  */
-import type { AddressDto, CustomerSummaryDto, OrderSummaryDto, RoleName, ScanMode } from '@vyra/shared';
-
-export interface SupplierDto {
-  id: string;
-  name: string;
-  contactName: string | null;
-  email: string | null;
-  phone: string | null;
-  gstin: string | null;
-  address: string | null;
-  isActive?: boolean;
-  createdAt?: string;
-}
-
-export type PurchaseOrderStatus = 'DRAFT' | 'ORDERED' | 'PARTIALLY_RECEIVED' | 'RECEIVED' | 'CANCELLED' | string;
+import type { PurchaseOrderSummaryDto, SupplierDto } from '@vyra/shared';
 
 export interface PurchaseOrderItemDto {
   id: string;
@@ -30,69 +17,19 @@ export interface PurchaseOrderItemDto {
   unitCost: number;
 }
 
-export interface PurchaseOrderDto {
+/** GET /admin/purchase-orders/:id (detail; the list uses PurchaseOrderSummaryDto). */
+export interface PurchaseOrderDetailDto {
   id: string;
-  number?: string;
+  number: string;
   reference: string | null;
-  status: PurchaseOrderStatus;
-  supplier?: { id: string; name: string } | null;
-  supplierName?: string;
-  notes?: string | null;
-  totalCost?: number;
-  orderedAt?: string;
-  items?: PurchaseOrderItemDto[];
-  itemCount?: number;
-  createdAt?: string;
-  receivedAt?: string | null;
-}
-
-export interface ScanHistoryRow {
-  id: string;
-  code: string;
-  mode: ScanMode;
-  device: string;
-  found: boolean;
-  sku?: string | null;
-  productName?: string | null;
-  variant?: { sku: string; productName: string } | null;
-  actorName?: string | null;
-  orderNumber?: string | null;
+  status: PurchaseOrderSummaryDto['status'];
+  supplier: SupplierDto | null;
+  notes: string | null;
+  totalCost: number;
+  orderedAt: string;
   createdAt: string;
-}
-
-export interface CustomerDetailDto extends Omit<CustomerSummaryDto, 'orders' | 'totalSpent' | 'lastOrderAt'> {
-  totalSpent?: number;
-  lastOrderAt?: string | null;
-  /** Count (summary shape) or a list of orders (detail shape) — both handled. */
-  orders: number | OrderSummaryDto[];
-  emailVerified?: boolean;
-  addresses?: AddressDto[];
-  recentOrders?: OrderSummaryDto[];
-  stats?: { orders: number; totalSpent: number; returns: number };
-  lastLoginAt?: string | null;
-}
-
-export interface StaffUserDto {
-  id: string;
-  name: string;
-  email: string;
-  role: RoleName;
-  isActive: boolean;
-  lastLoginAt?: string | null;
-  createdAt: string;
-}
-
-export interface AuditLogDto {
-  id: string;
-  action: string;
-  entity: string;
-  entityId: string | null;
-  actorName?: string | null;
-  actor?: { name: string; email: string } | null;
-  ip?: string | null;
-  before?: unknown;
-  after?: unknown;
-  createdAt: string;
+  receivedAt: string | null;
+  items: PurchaseOrderItemDto[];
 }
 
 export interface SalesAnalyticsDto {
@@ -108,7 +45,7 @@ export interface InventorySummary { units: number; reserved: number; available: 
 
 export interface DispatchLine { variantId: string; sku: string; expected: number; scanned: number }
 export type AdminOrderDetail = import('@vyra/shared').OrderDetailDto & {
-  customer: { id: string; name: string; email: string; phone: string | null } | null;
+  customer: { id: string; name: string; email: string | null; phone: string | null } | null;
   dispatch: DispatchLine[];
 };
 

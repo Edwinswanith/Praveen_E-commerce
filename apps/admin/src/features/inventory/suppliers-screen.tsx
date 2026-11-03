@@ -9,7 +9,7 @@ import { Pencil, Plus, Trash2, Truck } from 'lucide-react';
 import { useApi } from '@/lib/swr';
 import { api, errorMessage } from '@/lib/api';
 import { applyApiErrors, blankToNull, parseOrSetErrors } from '@/lib/forms';
-import type { SupplierDto } from '@/lib/types';
+import type { SupplierDto } from '@vyra/shared';
 import { useAuth } from '@/features/auth/auth-context';
 import { PERM } from '@/lib/permissions';
 import { DataTable } from '@/components/data-table/data-table';

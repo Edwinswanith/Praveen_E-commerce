@@ -5,7 +5,7 @@ import { TrackOrder } from '@/components/account/track-order';
 
 export const metadata: Metadata = {
   title: 'Track your order',
-  description: 'Track a VYRA order with your order number and email.',
+  description: 'Track a VYRA order with your order number and email or mobile number.',
 };
 
 export default function Page() {

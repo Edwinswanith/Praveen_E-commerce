@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Heart, MapPin, Package, RotateCcw, User } from 'lucide-react';
 import { Spinner, cn } from '@vyra/ui';
 import { useRequireAuth } from '@/hooks/use-require-auth';
+import { userContact } from '@/lib/format';
 
 const NAV = [
   { href: '/account', label: 'Profile', icon: User, exact: true },
@@ -32,6 +33,8 @@ export function AccountShell({ children }: { children: React.ReactNode }) {
           <span className="text-muted">Hello,</span>
           <br />
           <strong className="text-base">{user.name}</strong>
+          <br />
+          <span className="text-xs text-muted">{userContact(user)}</span>
         </p>
         <nav
           aria-label="Account"

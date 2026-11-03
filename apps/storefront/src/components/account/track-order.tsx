@@ -9,6 +9,7 @@ import { Truck } from 'lucide-react';
 import type { OrderDetailDto } from '@vyra/shared';
 import { Alert, Button, Field, Input } from '@vyra/ui';
 import { api, ApiError, errorMessage } from '@/lib/api';
+import { normalizeIndianMobile } from '@/lib/otp';
 import { OrderView } from './order-detail';
 
 const schema = z.object({
@@ -18,7 +19,24 @@ const schema = z.object({
     .min(3, 'Enter your order number')
     .max(40)
     .transform((v) => v.toUpperCase()),
-  email: z.string().trim().toLowerCase().email('Enter the email used for the order'),
+  contact: z
+    .string()
+    .trim()
+    .transform((v, ctx) => {
+      if (v.includes('@')) {
+        const email = v.toLowerCase();
+        if (z.string().email().safeParse(email).success) return { email } as const;
+        ctx.addIssue({ code: 'custom', message: 'Enter a valid email address' });
+        return z.NEVER;
+      }
+      const phone = normalizeIndianMobile(v);
+      if (phone) return { phone } as const;
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Enter the email or 10-digit mobile number used for the order',
+      });
+      return z.NEVER;
+    }),
 });
 
 export function TrackOrder() {
@@ -31,19 +49,19 @@ export function TrackOrder() {
     formState: { errors, isSubmitting },
   } = useForm({
     resolver: zodResolver(schema),
-    defaultValues: { number: params.get('number') ?? '', email: '' },
+    defaultValues: { number: params.get('number') ?? '', contact: '' },
   });
   const onSubmit = handleSubmit(async (v) => {
     setError(null);
     try {
       setOrder(
-        await api<OrderDetailDto>('/orders/track', { query: { number: v.number, email: v.email } }),
+        await api<OrderDetailDto>('/orders/track', { query: { number: v.number, ...v.contact } }),
       );
     } catch (e) {
       setOrder(null);
       setError(
         e instanceof ApiError && e.status === 404
-          ? 'We couldn’t find an order with that number and email.'
+          ? 'We couldn’t find an order with that number and email or phone.'
           : errorMessage(e),
       );
     }
@@ -56,7 +74,7 @@ export function TrackOrder() {
           <h1 className="font-display text-xl font-extrabold">Track your order</h1>
         </div>
         <p className="mt-1 text-sm text-muted">
-          Enter your order number (e.g. VY-…) and the email you used at checkout.
+          Enter your order number (e.g. VY-…) and the email or mobile number you used at checkout.
         </p>
         <form onSubmit={onSubmit} noValidate className="mt-6 grid gap-4 sm:grid-cols-2">
           <Field label="Order number" htmlFor="tr-number" error={errors.number?.message}>
@@ -67,13 +85,15 @@ export function TrackOrder() {
               invalid={!!errors.number}
             />
           </Field>
-          <Field label="Email" htmlFor="tr-email" error={errors.email?.message}>
+          <Field label="Email or mobile number" htmlFor="tr-contact" error={errors.contact?.message}>
             <Input
-              id="tr-email"
-              type="email"
+              id="tr-contact"
+              type="text"
+              inputMode="email"
               autoComplete="email"
-              {...register('email')}
-              invalid={!!errors.email}
+              placeholder="you@example.com or 98765 43210"
+              {...register('contact')}
+              invalid={!!errors.contact}
             />
           </Field>
           {error && (
@@ -88,7 +108,7 @@ export function TrackOrder() {
           </div>
         </form>
       </div>
-      {order && <OrderView order={order} />}
+      {order && <OrderView order={order} onChange={(o) => o && setOrder(o)} />}
     </div>
   );
 }

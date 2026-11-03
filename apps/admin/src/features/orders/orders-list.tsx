@@ -15,7 +15,9 @@ import { Pagination } from '@/components/data-table/pagination';
 import { SearchInput } from '@/components/data-table/search-input';
 import { PageHeader, StatusBadge } from '@/components/ui/feedback';
 
-const TABS: ('ALL' | OrderStatus)[] = ['ALL', OS.PENDING_PAYMENT, OS.CONFIRMED, OS.PACKED, OS.SHIPPED, OS.OUT_FOR_DELIVERY, OS.DELIVERED, OS.CANCELLED, OS.RETURNED];
+const COD_TAB = 'COD_PENDING';
+type Tab = 'ALL' | typeof COD_TAB | OrderStatus;
+const TABS: Tab[] = ['ALL', COD_TAB, OS.PENDING_PAYMENT, OS.CONFIRMED, OS.PACKED, OS.SHIPPED, OS.OUT_FOR_DELIVERY, OS.DELIVERED, OS.CANCELLED, OS.RETURNED, OS.RTO];
 
 const columns: ColumnDef<OrderSummaryDto, unknown>[] = [
   {
@@ -30,7 +32,7 @@ const columns: ColumnDef<OrderSummaryDto, unknown>[] = [
     ),
   },
   { header: 'Placed', accessorKey: 'createdAt', cell: ({ row }) => <span className="whitespace-nowrap text-muted">{formatDateTime(row.original.createdAt)}</span> },
-  { header: 'Customer', id: 'customer', cell: ({ row: { original: o } }) => <span className="block max-w-56"><span className="block truncate">{o.customerName}</span><span className="block truncate text-xs text-muted">{o.customerEmail}</span></span> },
+  { header: 'Customer', id: 'customer', cell: ({ row: { original: o } }) => <span className="block max-w-56"><span className="block truncate">{o.customerName}</span><span className="block truncate text-xs text-muted">{o.customerEmail || '—'}</span></span> },
   { header: 'Items', accessorKey: 'itemCount', meta: { align: 'right' }, cell: ({ row }) => formatNumber(row.original.itemCount) },
   {
     header: 'Payment', id: 'payment',
@@ -48,17 +50,22 @@ const columns: ColumnDef<OrderSummaryDto, unknown>[] = [
 export function OrdersList() {
   const router = useRouter();
   const [f, setF] = useUrlState({ status: 'ALL', q: '', from: '', to: '', page: '1' });
+  const isCodTab = f.status === COD_TAB;
   const { data, meta, error, isLoading, isValidating, mutate } = useApi<OrderSummaryDto[]>('/orders', {
-    status: f.status === 'ALL' ? undefined : f.status, q: f.q, from: dayToIso(f.from, 'start'), to: dayToIso(f.to, 'end'), page: f.page, pageSize: 25,
+    status: f.status === 'ALL' || isCodTab ? undefined : f.status, codPending: isCodTab ? 'true' : undefined, q: f.q, from: dayToIso(f.from, 'start'), to: dayToIso(f.to, 'end'), page: f.page, pageSize: 25,
   });
+  const codCount = useApi<OrderSummaryDto[]>('/orders', { codPending: 'true', pageSize: 1 }, { refreshInterval: 60_000 }).meta?.total ?? 0;
   return (
     <>
       <PageHeader title="Orders" description="Fulfil, ship, refund and track customer orders." />
+      {isCodTab && <p className="mb-3 text-sm text-muted">Cash on Delivery orders the customer hasn&apos;t confirmed by OTP. Call them, then mark the order confirmed so it can be packed.</p>}
       <div role="tablist" aria-label="Order status" className="-mx-3 mb-3 flex gap-1 overflow-x-auto px-3 sm:mx-0 sm:px-0">
         {TABS.map((t) => (
           <button key={t} role="tab" type="button" aria-selected={f.status === t} onClick={() => setF({ status: t })}
             className={cn('shrink-0 rounded-md px-3 py-1.5 text-sm font-medium text-muted hover:bg-surface-2 hover:text-fg', f.status === t && 'bg-bg text-fg shadow-sm ring-1 ring-border')}>
-            {t === 'ALL' ? 'All' : ORDER_STATUS_LABEL[t]}
+            {t === 'ALL' ? 'All' : t === COD_TAB ? (
+              <span className="inline-flex items-center gap-1.5">COD to confirm{codCount > 0 && <Badge tone="warning" aria-label={`${codCount} awaiting confirmation`}>{formatNumber(codCount)}</Badge>}</span>
+            ) : t === OS.RTO ? 'RTO' : ORDER_STATUS_LABEL[t]}
           </button>
         ))}
       </div>

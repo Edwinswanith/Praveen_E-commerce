@@ -15,7 +15,7 @@ export function PriceSummary({
   className?: string;
   title?: string;
 }) {
-  const savings = totals.productDiscount + totals.couponDiscount;
+  const savings = totals.productDiscount + totals.couponDiscount + totals.prepaidDiscount;
   return (
     <section aria-label="Price summary" className={cn('text-sm', className)}>
       <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
@@ -36,6 +36,12 @@ export function PriceSummary({
           <div className="flex justify-between">
             <dt>Coupon discount{couponCode ? ` (${couponCode})` : ''}</dt>
             <dd className="tabular-nums text-teal-600">−{formatINR(totals.couponDiscount)}</dd>
+          </div>
+        )}
+        {totals.prepaidDiscount > 0 && (
+          <div className="flex justify-between">
+            <dt>Prepaid discount</dt>
+            <dd className="tabular-nums text-teal-600">−{formatINR(totals.prepaidDiscount)}</dd>
           </div>
         )}
         <div className="flex justify-between">

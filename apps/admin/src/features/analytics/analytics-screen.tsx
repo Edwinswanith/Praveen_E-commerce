@@ -2,8 +2,11 @@
 import * as React from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
-import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Skeleton } from '@vyra/ui';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Skeleton } from '@vyra/ui';
 import { Download } from 'lucide-react';
+import type { CodAnalyticsDto, ProductReturnRateDto } from '@vyra/shared';
+import { CodKpis } from '@/features/cod/cod-kpis';
+import Link from 'next/link';
 import { useApi } from '@/lib/swr';
 import { errorMessage } from '@/lib/api';
 import { downloadFile } from '@/lib/download';
@@ -27,6 +30,23 @@ const productCols: ColumnDef<ProductAnalyticsRow, unknown>[] = [
   { header: 'Return rate', id: 'rate', meta: { align: 'right' }, cell: ({ row: { original: r } }) => <span className="text-muted">{r.units ? `${((r.returns / r.units) * 100).toFixed(1)}%` : '—'}</span> },
 ];
 
+/** Return rate (%) at or above which a product is flagged for review (sizing, quality, photos). */
+export const HIGH_RETURN_RATE = 20;
+
+const returnRateCols: ColumnDef<ProductReturnRateDto, unknown>[] = [
+  { header: 'Product', accessorKey: 'name', cell: ({ row }) => <span className="font-medium">{row.original.name}</span> },
+  { header: 'Sold', accessorKey: 'unitsSold', meta: { align: 'right' }, cell: ({ row }) => formatNumber(row.original.unitsSold) },
+  { header: 'Returned', accessorKey: 'unitsReturned', meta: { align: 'right' }, cell: ({ row }) => formatNumber(row.original.unitsReturned) },
+  {
+    header: 'Return rate', accessorKey: 'returnRate', meta: { align: 'right' },
+    cell: ({ row: { original: r } }) => r.returnRate >= HIGH_RETURN_RATE
+      ? <Badge tone="danger" title="High return rate: check sizing, photos and quality">{r.returnRate.toFixed(1)}%</Badge>
+      : <span className={r.returnRate > 0 ? 'text-warning' : 'text-muted'}>{r.returnRate.toFixed(1)}%</span>,
+  },
+  { header: 'Exchanges', accessorKey: 'exchanges', meta: { align: 'right' }, cell: ({ row }) => <span className="text-muted">{formatNumber(row.original.exchanges)}</span> },
+  { header: 'Top reason', accessorKey: 'topReason', cell: ({ row }) => <span className="text-muted">{row.original.topReason ? humanize(row.original.topReason) : '—'}</span> },
+];
+
 export function AnalyticsScreen() {
   const [f, setF] = useUrlState({ from: daysAgo(29), to: isoDay(new Date()), granularity: 'day' });
   const range = { from: dayToIso(f.from, 'start'), to: dayToIso(f.to, 'end') };
@@ -36,6 +56,10 @@ export function AnalyticsScreen() {
   const inventory = useApi<InventoryAnalyticsDto>('/analytics/inventory');
   const cancellations = useApi<CancellationReport>('/analytics/cancellations', range);
   const returns = useApi<ReturnsReport>('/analytics/returns', range);
+  const cod = useApi<CodAnalyticsDto>('/analytics/cod', range);
+  const returnRates = useApi<ProductReturnRateDto[]>('/analytics/return-rates', range);
+  const sortedReturnRates = React.useMemo(() => returnRates.data && [...returnRates.data].sort((a, b) => b.returnRate - a.returnRate || b.unitsSold - a.unitsSold), [returnRates.data]);
+  const highReturn = (returnRates.data ?? []).filter((r) => r.returnRate >= HIGH_RETURN_RATE).length;
 
   const series = (sales.data?.series ?? []).map((p) => ({ label: p.period, value: p[metric] }));
   const t = sales.data?.totals;
@@ -133,6 +157,22 @@ export function AnalyticsScreen() {
         <CancellationsCard state={cancellations} />
         <ReturnsCard state={returns} />
       </div>
+
+      <section className="mt-5" aria-label="Cash on Delivery and RTO">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-bold">Cash on Delivery &amp; RTO</h2>
+          <Link href="/cod" className="text-xs font-semibold text-muted hover:text-fg">Manage COD rules</Link>
+        </div>
+        {cod.error && !cod.data ? <ErrorState error={cod.error} onRetry={() => void cod.mutate()} /> : <CodKpis data={cod.data} />}
+      </section>
+
+      <section className="mt-5" aria-label="Return rates by product">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-bold">Return rates by product</h2>
+          {highReturn > 0 && <Badge tone="danger">{formatNumber(highReturn)} product{highReturn === 1 ? '' : 's'} at {HIGH_RETURN_RATE}%+</Badge>}
+        </div>
+        <DataTable columns={returnRateCols} data={sortedReturnRates} isLoading={returnRates.isLoading} error={returnRates.error} onRetry={() => void returnRates.mutate()} getRowId={(r) => r.productId} dense empty={{ title: 'No delivered sales in this period' }} />
+      </section>
     </>
   );
 }

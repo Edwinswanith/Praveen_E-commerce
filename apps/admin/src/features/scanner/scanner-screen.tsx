@@ -14,7 +14,7 @@ import { useApi } from '@/lib/swr';
 import { useAuth } from '@/features/auth/auth-context';
 import { PERM } from '@/lib/permissions';
 import { formatINR, formatNumber, formatTime, formatDateTime, humanize } from '@/lib/format';
-import type { ScanHistoryRow } from '@/lib/types';
+import type { ScanHistoryDto } from '@vyra/shared';
 import { PageHeader } from '@/components/ui/feedback';
 import { Segmented } from '@/components/ui/controls';
 import { DataTable } from '@/components/data-table/data-table';
@@ -369,24 +369,22 @@ function SessionHistory({ entries }: { entries: SessionEntry[] }) {
   );
 }
 
-const serverCols: ColumnDef<ScanHistoryRow, unknown>[] = [
+const serverCols: ColumnDef<ScanHistoryDto, unknown>[] = [
   { header: 'When', accessorKey: 'createdAt', cell: ({ row }) => <span className="whitespace-nowrap text-xs text-muted">{formatDateTime(row.original.createdAt)}</span> },
   { header: 'Code', accessorKey: 'code', cell: ({ row }) => <span className="font-mono text-xs">{row.original.code}</span> },
   {
     header: 'Item', id: 'item',
     cell: ({ row: { original: r } }) => {
-      const sku = r.sku ?? r.variant?.sku;
-      const name = r.productName ?? r.variant?.productName;
-      return r.found ? <span className="block max-w-48 truncate text-xs">{name ?? ''} <span className="font-mono text-muted">{sku ?? ''}</span></span> : <Badge tone="danger">Not found</Badge>;
+      return r.found ? <span className="block max-w-48 truncate text-xs">{r.productName ?? ''}{r.color ? ` · ${r.color}/${r.size ?? ''}` : ''} <span className="font-mono text-muted">{r.sku ?? ''}</span></span> : <Badge tone="danger">Not found</Badge>;
     },
   },
   { header: 'Mode', accessorKey: 'mode', cell: ({ row }) => <span className="text-xs">{humanize(row.original.mode)}</span> },
-  { header: 'By', accessorKey: 'actorName', cell: ({ row }) => <span className="text-xs text-muted">{row.original.actorName ?? '—'}</span> },
+  { header: 'By', accessorKey: 'actorName', cell: ({ row }) => <span className="text-xs text-muted">{row.original.actorName}</span> },
 ];
 
 function ServerHistory() {
   const [page, setPage] = React.useState(1);
-  const { data, meta, error, isLoading, mutate } = useApi<ScanHistoryRow[]>('/scans', { page, pageSize: 20 });
+  const { data, meta, error, isLoading, mutate } = useApi<ScanHistoryDto[]>('/scans', { page, pageSize: 20 });
   return (
     <DataTable className="rounded-none border-0" columns={serverCols} data={data} isLoading={isLoading} error={error} onRetry={() => void mutate()} getRowId={(r) => r.id} dense
       empty={{ title: 'No scans recorded yet' }} footer={<Pagination meta={meta} onPageChange={setPage} />} />

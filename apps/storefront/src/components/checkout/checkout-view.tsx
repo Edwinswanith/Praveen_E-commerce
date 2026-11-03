@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import useSWR from 'swr';
 import { z } from 'zod';
-import { Banknote, CreditCard, Lock, MapPin, Plus, ShoppingBag, Truck, User } from 'lucide-react';
+import { BadgePercent, Banknote, CreditCard, Lock, MapPin, Plus, ShoppingBag, Truck, User } from 'lucide-react';
 import { toast } from 'sonner';
 import type {
   AddressDto,
@@ -18,8 +18,14 @@ import type {
 import { formatINR } from '@vyra/shared';
 import { Alert, Button, EmptyState, Field, Input, Skeleton, Spinner, cn } from '@vyra/ui';
 import { api, ApiError, errorMessage } from '@/lib/api';
-import { clearIdempotencyKey, getIdempotencyKey, rememberOrder } from '@/lib/checkout-session';
-import { deliveryDate } from '@/lib/format';
+import {
+  clearIdempotencyKey,
+  getIdempotencyKey,
+  rememberCodOtp,
+  rememberOrder,
+} from '@/lib/checkout-session';
+import { normalizeIndianMobile } from '@/lib/otp';
+import { deliveryDate, userContact } from '@/lib/format';
 import { useAuth } from '@/hooks/use-auth';
 import { useCart } from '@/hooks/use-cart';
 import { PriceSummary } from '../cart/price-summary';
@@ -183,6 +189,9 @@ export function CheckoutView() {
 
   const selectedAddress = addresses?.find((a) => a.id === selectedAddressId) ?? null;
   const activePincode = user ? selectedAddress?.pincode : guestAddress?.pincode;
+  const activePhone = normalizeIndianMobile((user ? selectedAddress?.phone : guestAddress?.phone) ?? '');
+  // Guests and phone-only accounts need an email for the receipt.
+  const needsEmail = !user || !user.email;
 
   // Serviceability for the chosen address.
   React.useEffect(() => {
@@ -210,6 +219,8 @@ export function CheckoutView() {
         cart?.couponCode ?? '',
         cart?.totals.subtotal ?? 0,
         cart?.itemCount ?? 0,
+        activePincode && /^\d{6}$/.test(activePincode) ? activePincode : '',
+        activePhone ?? '',
       ] as const)
     : null;
   const {
@@ -218,24 +229,53 @@ export function CheckoutView() {
     error: quoteError,
   } = useSWR<Quote>(
     quoteKey,
-    ([, s, p, c]: readonly [string, ShippingMethod, PaymentMethod, string, number, number]) =>
+    ([, s, p, c, , , pin, ph]: readonly [
+      string,
+      ShippingMethod,
+      PaymentMethod,
+      string,
+      number,
+      number,
+      string,
+      string,
+    ]) =>
       api<Quote>('/checkout/quote', {
         method: 'POST',
-        body: { shippingMethod: s, paymentMethod: p, couponCode: c || undefined },
+        body: {
+          shippingMethod: s,
+          paymentMethod: p,
+          couponCode: c || undefined,
+          pincode: pin || undefined,
+          phone: ph || undefined,
+        },
       }),
     { keepPreviousData: true, revalidateOnFocus: false },
   );
 
   const codAvailable =
     (quote?.codAvailable ?? cart?.totals.codAvailable ?? false) && (svc ? svc.codAvailable : true);
+  const codUnavailableReason =
+    quote?.codUnavailableReason ??
+    (svc && !svc.codAvailable
+      ? `Cash on delivery isn’t available for PIN ${svc.pincode}`
+      : (cart?.totals.codUnavailableReason ?? 'Not available for this order or PIN code'));
   React.useEffect(() => {
     if (!codAvailable && paymentMethod === 'COD') setPaymentMethod('ONLINE');
   }, [codAvailable, paymentMethod]);
 
   const finish = React.useCallback(
-    async (order: OrderDetailDto) => {
+    async (order: OrderDetailDto, codOtp?: CheckoutResponse['codOtp']) => {
       clearIdempotencyKey();
       rememberOrder(order);
+      if (codOtp) {
+        rememberCodOtp(order.number, {
+          phoneMasked: codOtp.phoneMasked,
+          expiresInSeconds: codOtp.expiresInSeconds,
+          devCode: codOtp.devCode,
+          sentAt: Date.now(),
+          resendAfterSeconds: codOtp.expiresInSeconds > 0 ? 30 : 0,
+        });
+      }
       await refreshCart();
       router.replace(`/order/${encodeURIComponent(order.number)}/confirmation`);
     },
@@ -257,7 +297,7 @@ export function CheckoutView() {
     setError(null);
     setShortfall(null);
     let email: string | undefined;
-    if (!user) {
+    if (needsEmail) {
       const parsed = emailSchema.safeParse(guestEmail);
       if (!parsed.success) {
         setEmailError(parsed.error.issues[0]?.message ?? 'Enter your email');
@@ -279,9 +319,8 @@ export function CheckoutView() {
       const res = await api<CheckoutResponse>('/checkout', {
         method: 'POST',
         body: {
-          ...(user
-            ? { addressId: selectedAddress!.id }
-            : { address: guestAddress, guestEmail: email }),
+          ...(user ? { addressId: selectedAddress!.id } : { address: guestAddress }),
+          ...(email ? { guestEmail: email } : {}),
           shippingMethod: shipping,
           paymentMethod,
           couponCode: cart?.couponCode ?? undefined,
@@ -289,7 +328,7 @@ export function CheckoutView() {
         },
       });
       if (!res.payment) {
-        await finish(res.order);
+        await finish(res.order, res.codOtp);
         return;
       }
       if (res.payment.provider === 'mock') {
@@ -313,6 +352,9 @@ export function CheckoutView() {
         setShortfall(items);
         setError('Some items in your bag are no longer available in the requested quantity.');
         void refreshCart();
+      } else if (e instanceof ApiError && e.fieldErrors.guestEmail?.[0]) {
+        setEmailError(e.message || e.fieldErrors.guestEmail[0]);
+        document.getElementById('guest-email')?.focus();
       } else if (e instanceof ApiError && e.code === 'VALIDATION_FAILED') {
         const fe = e.fieldErrors;
         const first = Object.entries(fe)[0];
@@ -398,13 +440,38 @@ export function CheckoutView() {
           n={1}
           title="Contact"
           icon={<User />}
-          done={!!user || emailSchema.safeParse(guestEmail).success}
+          done={!needsEmail || emailSchema.safeParse(guestEmail).success}
         >
-          {user ? (
+          {user && user.email ? (
             <p className="text-sm">
               Signed in as <strong>{user.name}</strong>{' '}
-              <span className="text-muted">({user.email})</span>
+              <span className="text-muted">({userContact(user)})</span>
             </p>
+          ) : user ? (
+            <div className="space-y-3">
+              <p className="text-sm">
+                Signed in as <strong>{user.name}</strong>{' '}
+                <span className="text-muted">({userContact(user)})</span>
+              </p>
+              <Field
+                label="Email for your receipt"
+                htmlFor="guest-email"
+                error={emailError ?? undefined}
+                hint="We’ll email your invoice here and save it to your profile."
+              >
+                <Input
+                  id="guest-email"
+                  type="email"
+                  autoComplete="email"
+                  value={guestEmail}
+                  invalid={!!emailError}
+                  onChange={(e) => {
+                    setGuestEmail(e.target.value);
+                    setEmailError(null);
+                  }}
+                />
+              </Field>
+            </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
               <Field
@@ -565,6 +632,15 @@ export function CheckoutView() {
         </Step>
 
         <Step n={4} title="Payment" icon={<CreditCard />} done>
+          {totals.prepaidSavings > 0 && (
+            <p
+              className="mb-3 flex items-center gap-2 rounded-md bg-teal-500/10 px-3 py-2 text-sm font-semibold text-teal-700"
+              data-testid="prepaid-nudge"
+            >
+              <BadgePercent className="size-4 shrink-0" aria-hidden />
+              Save {formatINR(totals.prepaidSavings)} by paying online
+            </p>
+          )}
           <div className="space-y-2" role="radiogroup" aria-label="Payment method">
             <RadioCard
               name="pay"
@@ -576,7 +652,14 @@ export function CheckoutView() {
                 <CreditCard className="size-4" aria-hidden />
                 Pay online
               </p>
-              <p className="text-muted">UPI, cards, net banking and wallets</p>
+              <p className="text-muted">
+                UPI, cards, net banking and wallets
+                {totals.prepaidSavings > 0 && (
+                  <span className="ml-1 font-semibold text-teal-600">
+                    · extra {formatINR(totals.prepaidSavings)} off
+                  </span>
+                )}
+              </p>
             </RadioCard>
             <RadioCard
               name="pay"
@@ -592,7 +675,7 @@ export function CheckoutView() {
               <p className="text-muted">
                 {codAvailable
                   ? 'Pay when your order arrives · small COD fee applies'
-                  : 'Not available for this order or PIN code'}
+                  : codUnavailableReason}
               </p>
             </RadioCard>
           </div>

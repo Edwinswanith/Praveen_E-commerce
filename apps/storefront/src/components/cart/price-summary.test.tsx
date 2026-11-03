@@ -9,11 +9,14 @@ const totals: CartTotalsDto = {
   subtotal: 2997,
   productDiscount: 2000,
   couponDiscount: 300,
+  prepaidDiscount: 0,
+  prepaidSavings: 0,
   shippingFee: 0,
   codFee: 0,
   taxTotal: 128.43,
   grandTotal: 2697,
   codAvailable: true,
+  codUnavailableReason: null,
   freeShippingThreshold: 999,
 };
 
@@ -59,6 +62,19 @@ describe('<PriceSummary />', () => {
     expect(within(row(/^Shipping fee$/)).getByText(formatINR(79))).toBeInTheDocument();
     expect(within(row(/Cash on delivery fee/)).getByText(formatINR(49))).toBeInTheDocument();
     expect(screen.queryByText(/You’re saving/)).not.toBeInTheDocument();
+  });
+});
+
+describe('<PriceSummary /> prepaid discount', () => {
+  it('shows the prepaid discount line and counts it in savings', () => {
+    render(<PriceSummary totals={{ ...totals, prepaidDiscount: 50 }} itemCount={3} />);
+    expect(within(row(/^Prepaid discount$/)).getByText(`−${formatINR(50)}`)).toBeInTheDocument();
+    expect(screen.getByText(`You’re saving ${formatINR(2350)} on this order`)).toBeInTheDocument();
+  });
+
+  it('hides the line when zero', () => {
+    render(<PriceSummary totals={totals} itemCount={3} />);
+    expect(screen.queryByText(/Prepaid discount/)).not.toBeInTheDocument();
   });
 });
 

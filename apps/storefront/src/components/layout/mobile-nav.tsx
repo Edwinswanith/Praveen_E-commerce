@@ -7,6 +7,7 @@ import { VyraLogo } from '@vyra/ui';
 import type { NavCategory } from '@/lib/categories';
 import { useAuth } from '@/hooks/use-auth';
 import { Sheet } from '../ui/dialog';
+import { userContact } from '@/lib/format';
 
 export function MobileNav({
   open,
@@ -30,7 +31,8 @@ export function MobileNav({
         <div className="border-b border-border bg-surface px-5 py-4">
           {user ? (
             <p className="text-sm">
-              Hi <strong>{user.name.split(' ')[0]}</strong> —{' '}
+              Hi <strong>{user.name.split(' ')[0]}</strong>
+              <span className="block truncate text-xs text-muted">{userContact(user)}</span>
               <Link href="/account" onClick={close} className="font-semibold text-brand-600">
                 My account
               </Link>

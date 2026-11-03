@@ -3,14 +3,14 @@ import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import type { CustomerSummaryDto, OrderSummaryDto } from '@vyra/shared';
-import { Badge, Card, CardContent, CardHeader, CardTitle, Skeleton } from '@vyra/ui';
+import type { CustomerDetailDto, CustomerSummaryDto, OrderSummaryDto } from '@vyra/shared';
+import { Alert, Badge, Card, CardContent, CardHeader, CardTitle, Skeleton } from '@vyra/ui';
 import { ArrowLeft, Users } from 'lucide-react';
 import { useApi } from '@/lib/swr';
 import { useUrlState } from '@/hooks/use-url-state';
 import { useAuth } from '@/features/auth/auth-context';
 import { PERM } from '@/lib/permissions';
-import type { CustomerDetailDto } from '@/lib/types';
+import { CodBlockButton } from '@/features/cod/cod-block';
 import { formatDate, formatDateTime, formatINR, formatNumber } from '@/lib/format';
 import { ORDER_STATUS_LABEL, ORDER_STATUS_TONE } from '@/lib/status';
 import { DataTable } from '@/components/data-table/data-table';
@@ -19,7 +19,7 @@ import { SearchInput } from '@/components/data-table/search-input';
 import { ErrorState, KeyValue, PageHeader, StatCard, StatusBadge } from '@/components/ui/feedback';
 
 const columns: ColumnDef<CustomerSummaryDto, unknown>[] = [
-  { header: 'Customer', id: 'name', cell: ({ row: { original: c } }) => <span className="block min-w-48"><span className="block font-medium">{c.name}</span><span className="block text-xs text-muted">{c.email}</span></span> },
+  { header: 'Customer', id: 'name', cell: ({ row: { original: c } }) => <span className="block min-w-48"><span className="block font-medium">{c.name}</span><span className="block text-xs text-muted">{c.email ?? 'Phone-only account'}</span></span> },
   { header: 'Phone', accessorKey: 'phone', cell: ({ row }) => row.original.phone ?? '—' },
   { header: 'Orders', accessorKey: 'orders', meta: { align: 'right' }, cell: ({ row }) => formatNumber(row.original.orders) },
   { header: 'Total spent', accessorKey: 'totalSpent', meta: { align: 'right' }, cell: ({ row }) => <span className="font-medium">{formatINR(row.original.totalSpent)}</span> },
@@ -53,13 +53,12 @@ export function CustomerDetail({ id }: { id: string }) {
   const router = useRouter();
   const { can } = useAuth();
   const { data: c, error, isLoading, mutate } = useApi<CustomerDetailDto>(`/customers/${id}`);
-  const embedded = c ? (Array.isArray(c.orders) ? c.orders : c.recentOrders) : undefined;
-  const orderCount = c ? (c.stats?.orders ?? (Array.isArray(c.orders) ? c.orders.length : c.orders)) : 0;
-  const totalSpent = c ? (c.stats?.totalSpent ?? c.totalSpent ?? 0) : 0;
-  const lastOrderAt = c ? (c.lastOrderAt ?? embedded?.[0]?.createdAt ?? null) : null;
-  // Fall back to the orders endpoint when the detail payload has no order list.
-  const { data: fetchedOrders, isLoading: ordersLoading } = useApi<OrderSummaryDto[]>(c && !embedded && can(PERM.ordersRead) ? '/orders' : null, { q: c?.email, pageSize: 20 });
-  const orders = embedded ?? fetchedOrders;
+  const orders = c?.orders;
+  const orderCount = c?.stats.orders ?? 0;
+  const totalSpent = c?.stats.totalSpent ?? 0;
+  const lastOrderAt = orders?.[0]?.createdAt ?? null;
+  const risk = c?.codRisk ?? null;
+  const canWrite = can(PERM.ordersWrite);
   const back = <Link href="/customers" className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-fg"><ArrowLeft className="size-3.5" /> Customers</Link>;
 
   if (error && !c) return <>{back}<ErrorState error={error} onRetry={() => void mutate()} /></>;
@@ -67,7 +66,8 @@ export function CustomerDetail({ id }: { id: string }) {
 
   return (
     <>
-      <PageHeader back={back} title={c.name} description={c.email} />
+      <PageHeader back={back} title={c.name} description={[c.email, c.phone].filter(Boolean).join(' · ') || undefined} />
+      {risk?.codBlocked && <Alert tone="danger" className="mb-5" title="Cash on Delivery blocked">This customer can only pay online{risk.note ? ` — ${risk.note}` : ''}.</Alert>}
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Orders" value={formatNumber(orderCount)} />
         <StatCard label="Total spent" value={formatINR(totalSpent)} />
@@ -77,19 +77,36 @@ export function CustomerDetail({ id }: { id: string }) {
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <h2 className="mb-2 text-sm font-bold">Orders</h2>
-          <DataTable columns={orderCols} data={orders} isLoading={!orders && ordersLoading} getRowId={(o) => o.id} onRowClick={(o) => router.push(`/orders/${o.id}`)} empty={{ title: 'No orders yet' }} />
+          <DataTable columns={orderCols} data={orders} getRowId={(o) => o.id} onRowClick={(o) => router.push(`/orders/${o.id}`)} empty={{ title: 'No orders yet' }} />
         </div>
         <div className="space-y-5">
           <Card>
             <CardHeader><CardTitle>Profile</CardTitle></CardHeader>
             <CardContent>
               <KeyValue items={[
-                { label: 'Email', value: <span className="flex flex-wrap items-center gap-1.5">{c.email}{c.emailVerified !== undefined && <Badge tone={c.emailVerified ? 'success' : 'warning'}>{c.emailVerified ? 'Verified' : 'Unverified'}</Badge>}</span> },
+                { label: 'Email', value: c.email ? <span className="flex flex-wrap items-center gap-1.5">{c.email}<Badge tone={c.emailVerified ? 'success' : 'warning'}>{c.emailVerified ? 'Verified' : 'Unverified'}</Badge></span> : <span className="text-muted">None (phone-only account)</span> },
                 { label: 'Phone', value: c.phone ?? '—' },
                 { label: 'Joined', value: formatDate(c.createdAt) },
                 { label: 'Last login', value: formatDateTime(c.lastLoginAt) },
-                ...(c.stats ? [{ label: 'Returns', value: formatNumber(c.stats.returns) }] : []),
+                { label: 'Returns', value: formatNumber(c.stats.returns) },
+                { label: 'RTO parcels', value: <span className={c.stats.rto > 0 ? 'font-semibold text-danger' : undefined}>{formatNumber(c.stats.rto)}</span> },
               ]} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Cash on Delivery</CardTitle>{c.phone && <Badge tone={risk?.codBlocked ? 'danger' : 'success'}>{risk?.codBlocked ? 'Blocked' : 'Allowed'}</Badge>}</CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {!c.phone ? <p className="text-muted">No phone on file, so COD risk is tracked per order phone.</p> : (
+                <>
+                  <KeyValue items={[
+                    { label: 'Phone', value: <span className="font-mono">{risk?.phone ?? c.phone}</span> },
+                    { label: 'RTO parcels', value: formatNumber(risk?.rtoCount ?? 0) },
+                    { label: 'Last RTO', value: formatDateTime(risk?.lastRtoAt ?? null) },
+                    ...(risk?.note ? [{ label: 'Note', value: risk.note }] : []),
+                  ]} />
+                  {canWrite && <CodBlockButton phone={risk?.phone ?? c.phone} blocked={!!risk?.codBlocked} onDone={() => void mutate()} />}
+                </>
+              )}
             </CardContent>
           </Card>
           <Card>

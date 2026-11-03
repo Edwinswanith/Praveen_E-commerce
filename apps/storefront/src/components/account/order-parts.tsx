@@ -22,7 +22,8 @@ const FLOW: OrderStatus[] = ['CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY
 /** Progress timeline built from the order's events (falls back to the canonical flow for steps not reached yet). */
 export function OrderTimeline({ order }: { order: OrderDetailDto }) {
   const events = [...order.events].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const terminal = order.status === 'CANCELLED' || order.status === 'RETURNED';
+  const terminal =
+    order.status === 'CANCELLED' || order.status === 'RETURNED' || order.status === 'RTO';
   const reachedIdx = FLOW.indexOf(order.status);
   const steps = terminal
     ? events.map((e) => ({ status: e.status, at: e.createdAt, note: e.note, done: true }))
@@ -56,7 +57,7 @@ export function OrderTimeline({ order }: { order: OrderDetailDto }) {
             className={cn(
               'absolute -left-[33px] top-0.5 flex size-4 items-center justify-center rounded-full ring-4 ring-bg',
               s.done
-                ? s.status === 'CANCELLED'
+                ? s.status === 'CANCELLED' || s.status === 'RTO'
                   ? 'bg-danger'
                   : 'bg-teal-500'
                 : 'bg-border-strong',
@@ -69,6 +70,11 @@ export function OrderTimeline({ order }: { order: OrderDetailDto }) {
           </p>
           {s.at && <p className="text-xs text-muted">{formatDateTime(s.at)}</p>}
           {s.note && <p className="mt-0.5 text-xs text-fg/80">{s.note}</p>}
+          {s.status === 'RTO' && (
+            <p className="mt-0.5 text-xs text-muted">
+              The courier couldn’t deliver this parcel and it was returned to us.
+            </p>
+          )}
         </li>
       ))}
     </ol>
@@ -192,11 +198,14 @@ export function OrderTotals({ order }: { order: OrderDetailDto }) {
         subtotal: order.subtotal,
         productDiscount,
         couponDiscount: order.couponDiscount,
+        prepaidDiscount: order.prepaidDiscount,
+        prepaidSavings: 0,
         shippingFee: order.shippingFee,
         codFee: order.codFee,
         taxTotal: order.taxTotal,
         grandTotal: order.grandTotal,
         codAvailable: order.paymentMethod === 'COD',
+        codUnavailableReason: null,
         freeShippingThreshold: 0,
       }}
     />
@@ -208,6 +217,9 @@ export function PaymentLine({ order }: { order: OrderDetailDto }) {
     <p className="text-sm">
       <span className="text-muted">Payment: </span>
       {order.paymentMethod === 'COD' ? 'Cash on delivery' : 'Online'}
+      {order.paymentMethod === 'COD' && order.codConfirmation === 'PENDING' && (
+        <span className="text-warning"> · Awaiting your confirmation</span>
+      )}
       {order.paymentStatus && (
         <span className="text-muted"> · {PAYMENT_STATUS_LABEL[order.paymentStatus]}</span>
       )}

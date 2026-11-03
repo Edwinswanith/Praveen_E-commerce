@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import type { OrderSummaryDto } from '@vyra/shared';
 import { Alert, Badge, Button, Card, Skeleton, cn } from '@vyra/ui';
-import { CheckCircle2, PackageCheck, Search, X, AlertOctagon } from 'lucide-react';
+import { CheckCircle2, PackageCheck, Search, X, AlertOctagon, PhoneCall } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useApi } from '@/lib/swr';
 import type { AdminOrderDetail, DispatchLine } from '@/lib/types';
@@ -81,6 +81,7 @@ export function DispatchPanel({ orderId, onClear, canPack, mismatch }: { orderId
   const progress = dispatchProgress(lines);
   const itemFor = (l: DispatchLine) => order.items.find((i) => i.variantId === l.variantId);
   const packable = order.status === 'CONFIRMED';
+  const codPending = order.codConfirmation === 'PENDING' && order.status !== 'CANCELLED';
 
   const markPacked = async () => {
     setPacking(true);
@@ -104,6 +105,15 @@ export function DispatchPanel({ orderId, onClear, canPack, mismatch }: { orderId
         </div>
         <Button variant="ghost" size="sm" onClick={onClear} aria-label="Change order"><X /> Change</Button>
       </div>
+      {codPending && (
+        <div role="status" className="flex items-start gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-amber-900">
+          <PhoneCall className="mt-0.5 size-5 shrink-0" aria-hidden />
+          <div className="text-sm">
+            <p className="font-bold">Awaiting COD confirmation. Do not pack yet.</p>
+            <p>The customer hasn&apos;t confirmed this Cash on Delivery order. <Link href={`/orders/${order.id}`} className="font-semibold underline">Open the order</Link> to call and confirm it.</p>
+          </div>
+        </div>
+      )}
       {mismatch && (
         <div role="alert" className="flex items-start gap-3 bg-danger px-4 py-3 text-white">
           <AlertOctagon className="mt-0.5 size-6 shrink-0" aria-hidden />
@@ -140,7 +150,8 @@ export function DispatchPanel({ orderId, onClear, canPack, mismatch }: { orderId
       <div className="space-y-2 border-t border-border bg-surface px-4 py-3">
         {progress.over.length > 0 && <Alert tone="danger">Too many units scanned for {progress.over.map((o) => o.sku).join(', ')}. Remove the extra item(s) from the parcel.</Alert>}
         {!packable && <p className="text-xs text-muted">Only confirmed orders can be marked packed (current: {ORDER_STATUS_LABEL[order.status]}).</p>}
-        <Button block size="lg" disabled={!progress.complete || !packable || !canPack} loading={packing} onClick={() => void markPacked()}>
+        {codPending && packable && <p className="text-xs text-warning">Packing is locked until the COD order is confirmed.</p>}
+        <Button block size="lg" disabled={!progress.complete || !packable || !canPack || codPending} loading={packing} onClick={() => void markPacked()}>
           <PackageCheck /> {progress.complete ? 'Mark packed' : `Scan ${formatNumber(progress.total - progress.scanned)} more item(s)`}
         </Button>
       </div>

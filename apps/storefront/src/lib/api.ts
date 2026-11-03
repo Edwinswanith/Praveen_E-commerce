@@ -38,7 +38,7 @@ export interface RequestOptions {
 
 export const API_PREFIX = '/api/v1';
 
-const NO_REFRESH_PATHS = ['/auth/refresh', '/auth/login', '/auth/register', '/auth/logout'];
+const NO_REFRESH_PATHS = ['/auth/refresh', '/auth/login', '/auth/register', '/auth/logout', '/auth/otp'];
 
 export function buildUrl(path: string, query?: Record<string, QueryValue>): string {
   const url = `${API_PREFIX}${path.startsWith('/') ? path : `/${path}`}`;

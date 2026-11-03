@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import type { OrderStatus } from '@vyra/shared';
 import { Alert, Badge, Button, Card, CardContent, CardHeader, CardTitle, Skeleton, cn } from '@vyra/ui';
-import { ArrowLeft, FileText, IndianRupee, ScanLine, Truck, ExternalLink } from 'lucide-react';
+import { ArrowLeft, FileText, IndianRupee, ScanLine, Truck, ExternalLink, PhoneCall, Repeat } from 'lucide-react';
 import { useApi } from '@/lib/swr';
 import { api, errorMessage } from '@/lib/api';
 import { openFile } from '@/lib/download';
@@ -12,12 +12,15 @@ import { useAuth } from '@/features/auth/auth-context';
 import { PERM } from '@/lib/permissions';
 import type { AdminOrderDetail } from '@/lib/types';
 import { formatDateTime, formatINR, formatNumber, humanize } from '@/lib/format';
-import { ORDER_STATUS_LABEL, ORDER_STATUS_TONE, PAYMENT_STATUS_TONE, REFUND_STATUS_TONE, RETURN_STATUS_TONE, SHIPMENT_STATUS_TONE } from '@/lib/status';
+import { ORDER_STATUS_LABEL, ORDER_STATUS_TONE, PAYMENT_STATUS_TONE, REFUND_STATUS_TONE, RETURN_STATUS_TONE, RETURN_TYPE_LABEL, RETURN_TYPE_TONE, SHIPMENT_STATUS_TONE } from '@/lib/status';
 import { ErrorState, KeyValue, PageHeader, StatusBadge } from '@/components/ui/feedback';
 import { useConfirm } from '@/components/ui/confirm';
 import { dispatchProgress } from '@/features/scanner/dispatch-panel';
 import { NextStatusActions, ACTION_LABEL } from './next-status';
-import { CancelOrderDialog, RefundDialog, ShipmentDialog } from './order-dialogs';
+import { CancelOrderDialog, ConfirmCodDialog, RefundDialog, RtoDialog, ShipmentDialog } from './order-dialogs';
+import { exchangeLabel } from '@/features/returns/exchange';
+
+export const COD_PENDING_PACK_REASON = 'Packing is locked until this Cash on Delivery order is confirmed (customer OTP or a staff call).';
 
 const back = <Link href="/orders" className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-fg"><ArrowLeft className="size-3.5" /> Orders</Link>;
 
@@ -25,7 +28,7 @@ export function OrderDetail({ id }: { id: string }) {
   const { can } = useAuth();
   const confirm = useConfirm();
   const { data: o, error, isLoading, mutate } = useApi<AdminOrderDetail>(`/orders/${id}`);
-  const [dialog, setDialog] = React.useState<'cancel' | 'ship' | 'refund' | null>(null);
+  const [dialog, setDialog] = React.useState<'cancel' | 'ship' | 'refund' | 'cod' | 'rto' | null>(null);
   const [pendingStatus, setPendingStatus] = React.useState<OrderStatus | null>(null);
   const [invoicePending, setInvoicePending] = React.useState(false);
 
@@ -37,6 +40,9 @@ export function OrderDetail({ id }: { id: string }) {
   const refunded = o.refunds.filter((r) => r.status !== 'FAILED').reduce((s, r) => s + r.amount, 0);
   const refundable = Math.max(0, Math.round((captured - refunded) * 100) / 100);
   const canWrite = can(PERM.ordersWrite);
+  const codPending = o.codConfirmation === 'PENDING' && o.status !== 'CANCELLED';
+  const blocked = codPending ? { PACKED: COD_PENDING_PACK_REASON } : undefined;
+  const contactPhone = o.customer?.phone ?? o.shippingAddress.phone;
 
   const changeStatus = async (next: OrderStatus) => {
     let description: string | undefined;
@@ -75,9 +81,30 @@ export function OrderDetail({ id }: { id: string }) {
         actions={<>
           <Button variant="outline" size="sm" loading={invoicePending} onClick={() => void invoice()}><FileText /> Invoice</Button>
           {canWrite && !o.shipment && ['CONFIRMED', 'PACKED'].includes(o.status) && <Button variant="outline" size="sm" onClick={() => setDialog('ship')}><Truck /> Create shipment</Button>}
+          {canWrite && codPending && <Button variant="secondary" size="sm" onClick={() => setDialog('cod')}><PhoneCall /> Mark confirmed (called customer)</Button>}
           {can(PERM.ordersRefund) && refundable > 0 && <Button variant="outline" size="sm" onClick={() => setDialog('refund')}><IndianRupee /> Refund</Button>}
         </>}
       />
+
+      {o.exchangeForOrderNumber && (
+        <Alert tone="info" className="mb-5"><span className="inline-flex items-center gap-1.5"><Repeat className="size-4" /> Replacement for order <Link href={`/orders/${o.exchangeForOrderNumber}`} className="font-semibold underline">{o.exchangeForOrderNumber}</Link> (exchange). No payment is due.</span></Alert>
+      )}
+      {codPending && (
+        <Alert tone="warning" className="mb-5" title="Awaiting COD confirmation">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>The customer hasn&apos;t confirmed this Cash on Delivery order by OTP yet. Call {contactPhone ? <span className="font-mono font-semibold">{contactPhone}</span> : 'the customer'} before packing. Unconfirmed COD orders are cancelled automatically.</span>
+            {canWrite && <Button size="sm" variant="secondary" onClick={() => setDialog('cod')}><PhoneCall /> Mark confirmed (called customer)</Button>}
+          </div>
+        </Alert>
+      )}
+      {o.status === 'RTO' && o.paymentMethod !== 'COD' && refundable > 0 && (
+        <Alert tone="danger" className="mb-5" title="Prepaid parcel returned to origin">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>The customer paid {formatINR(captured)} online but never received the parcel. Issue a refund of up to {formatINR(refundable)}.</span>
+            {can(PERM.ordersRefund) && <Button size="sm" variant="danger" onClick={() => setDialog('refund')}><IndianRupee /> Issue refund</Button>}
+          </div>
+        </Alert>
+      )}
 
       <Card className="mb-5">
         <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -85,7 +112,7 @@ export function OrderDetail({ id }: { id: string }) {
             <p className="text-sm font-semibold">Next step</p>
             <p className="text-xs text-muted">Only transitions allowed from “{ORDER_STATUS_LABEL[o.status]}” are shown.</p>
           </div>
-          <NextStatusActions status={o.status} canWrite={canWrite} onSelect={(s) => void changeStatus(s)} onCancel={() => setDialog('cancel')} pendingStatus={pendingStatus} disabled={!!pendingStatus} />
+          <NextStatusActions status={o.status} canWrite={canWrite} onSelect={(s) => void changeStatus(s)} onCancel={() => setDialog('cancel')} onRto={() => setDialog('rto')} blocked={blocked} pendingStatus={pendingStatus} disabled={!!pendingStatus} />
         </CardContent>
       </Card>
 
@@ -171,8 +198,12 @@ export function OrderDetail({ id }: { id: string }) {
               <ul className="divide-y divide-border">
                 {o.returns.map((r) => (
                   <li key={r.id} className="flex items-center justify-between gap-3 px-5 py-3 text-sm">
-                    <span><span className="font-medium">{humanize(r.reason)}</span><span className="block text-xs text-muted">{r.items.map((i) => `${i.quantity}× ${i.sku}`).join(', ')}</span></span>
-                    <span className="text-right"><StatusBadge value={r.status} tone={RETURN_STATUS_TONE[r.status]} /><span className="tabular block text-xs text-muted">{formatINR(r.refundAmount)}</span></span>
+                    <span>
+                      <span className="flex items-center gap-2 font-medium"><Badge tone={RETURN_TYPE_TONE[r.type]}>{RETURN_TYPE_LABEL[r.type]}</Badge>{humanize(r.reason)}</span>
+                      <span className="block text-xs text-muted">{r.items.map((i) => `${i.quantity}× ${i.sku}${i.exchangeFor ? ` → ${exchangeLabel(i)}` : ''}`).join(', ')}</span>
+                      {r.replacementOrderNumber && <span className="block text-xs">Replacement order <Link href={`/orders/${r.replacementOrderNumber}`} className="font-semibold text-brand-600 hover:underline">{r.replacementOrderNumber}</Link></span>}
+                    </span>
+                    <span className="text-right"><StatusBadge value={r.status} tone={RETURN_STATUS_TONE[r.status]} /><span className="tabular block text-xs text-muted">{r.type === 'EXCHANGE' ? 'Exchange' : formatINR(r.refundAmount)}</span></span>
                   </li>
                 ))}
               </ul>
@@ -201,7 +232,7 @@ export function OrderDetail({ id }: { id: string }) {
             <CardHeader><CardTitle>Customer</CardTitle>{o.customer && can(PERM.customersRead) && <Link href={`/customers/${o.customer.id}`} className="text-xs font-semibold text-muted hover:text-fg">Profile</Link>}</CardHeader>
             <CardContent className="space-y-1 text-sm">
               <p className="font-medium">{o.customer?.name ?? o.customerName}</p>
-              <p className="text-muted">{o.customer?.email ?? o.customerEmail}</p>
+              {(o.customer?.email ?? o.customerEmail) && <p className="text-muted">{o.customer?.email ?? o.customerEmail}</p>}
               {o.customer?.phone && <p className="text-muted">{o.customer.phone}</p>}
               {!o.customer && <Badge tone="neutral">Guest checkout</Badge>}
             </CardContent>
@@ -221,6 +252,7 @@ export function OrderDetail({ id }: { id: string }) {
               <dl className="tabular space-y-1.5 text-sm">
                 <Row label="MRP total" value={formatINR(o.mrpTotal)} />
                 <Row label="Subtotal" value={formatINR(o.subtotal)} />
+                {o.prepaidDiscount > 0 && <Row label="Prepaid discount" value={`− ${formatINR(o.prepaidDiscount)}`} />}
                 {o.couponDiscount > 0 && <Row label={`Coupon${o.couponCode ? ` (${o.couponCode})` : ''}`} value={`− ${formatINR(o.couponDiscount)}`} />}
                 <Row label="Shipping" value={o.shippingFee ? formatINR(o.shippingFee) : 'Free'} />
                 {o.codFee > 0 && <Row label="COD fee" value={formatINR(o.codFee)} />}
@@ -256,6 +288,8 @@ export function OrderDetail({ id }: { id: string }) {
 
       {dialog === 'cancel' && <CancelOrderDialog orderId={o.id} number={o.number} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === 'ship' && <ShipmentDialog orderId={o.id} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog === 'cod' && <ConfirmCodDialog orderId={o.id} number={o.number} phone={contactPhone} onClose={() => setDialog(null)} onDone={done} />}
+      {dialog === 'rto' && <RtoDialog orderId={o.id} number={o.number} paymentMethod={o.paymentMethod} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === 'refund' && <RefundDialog orderId={o.id} maxAmount={refundable} onClose={() => setDialog(null)} onDone={done} />}
     </>
   );
