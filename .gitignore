@@ -16,3 +16,6 @@ next-env.d.ts
 dump.rdb
 storage/
 .env.local
+test-results/
+playwright-report/
+backups/

@@ -54,8 +54,7 @@ export class MediaService {
   }
 
   /** Customer review photos: same sanitising pipeline, stored under reviews/. */
-  async storeReviewImage(reviewId: string, input: Buffer) {
-    const img = await this.processImage(input);
+  async storeReviewImage(reviewId: string, img: ProcessedImage) {
     const id = randomUUID();
     const key = `reviews/${reviewId}/${id}.webp`;
     const url = await this.storage.put(key, img.buffer, 'image/webp');

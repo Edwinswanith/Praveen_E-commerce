@@ -91,16 +91,19 @@ export class ReviewWriteController {
   @UseInterceptors(FilesInterceptor('images', 3, { storage: memoryStorage(), limits: { fileSize: MAX_IMAGE_BYTES, files: 3 } }))
   async create(@CurrentUser() u: AuthUser, @Param('slug') slug: string, @Body() raw: Record<string, unknown>, @UploadedFiles() files: Express.Multer.File[] = []): Promise<ReviewDto> {
     const body = parseOrThrow(reviewSchema, Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== '')));
+    // Validate/re-encode every photo BEFORE writing anything: a rejected photo must not leave a half-saved review.
+    const photos = [];
+    for (const f of files) photos.push(await this.media.processImage(f.buffer));
     const p = await this.prisma.product.findFirst({ where: { slug, status: 'ACTIVE', deletedAt: null }, select: { id: true } });
     if (!p) throw notFound('Product');
     // Verified = the customer actually received it (even if later returned or exchanged).
     const bought = await this.prisma.orderItem.findFirst({ where: { productId: p.id, order: { userId: u.id, deliveredAt: { not: null } } }, select: { size: true }, orderBy: { order: { deliveredAt: 'desc' } } });
     const data = { rating: body.rating, title: body.title, body: body.body, fit: body.fit ?? null, sizePurchased: body.sizePurchased ?? bought?.size ?? null, verifiedPurchase: !!bought };
     const review = await this.prisma.review.upsert({ where: { productId_userId: { productId: p.id, userId: u.id } }, create: { productId: p.id, userId: u.id, ...data }, update: data });
-    if (files.length) {
-      // Photos are re-encoded (EXIF/GPS stripped) before storage; new photos replace old ones.
+    if (photos.length) {
+      // Photos were re-encoded (EXIF/GPS stripped) above; new photos replace old ones.
       const processed = [];
-      for (const f of files) processed.push(await this.media.storeReviewImage(review.id, f.buffer));
+      for (const img of photos) processed.push(await this.media.storeReviewImage(review.id, img));
       const old = await this.prisma.reviewImage.findMany({ where: { reviewId: review.id } });
       await this.prisma.reviewImage.deleteMany({ where: { reviewId: review.id } });
       for (const o of old) await this.storage.delete(o.storageKey);

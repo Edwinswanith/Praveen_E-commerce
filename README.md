@@ -34,6 +34,8 @@ To use real AI search, set `EMBEDDING_PROVIDER=gemini` and `GEMINI_API_KEY` in `
 | `pnpm build` / `pnpm typecheck` / `pnpm test` | across the monorepo |
 | `pnpm db:migrate` / `pnpm db:seed` / `pnpm db:reset` | Prisma migrations / demo seed / drop + re-migrate |
 | `pnpm --filter @vyra/api worker` | standalone background worker (production) |
+| `pnpm e2e` | Playwright browser tests against the running apps (seeded DB) |
+| `infrastructure/deployment/backup.sh` | database backup (+ `restore-check.sh` drill) |
 
 ## Documentation
 - [CLAUDE.md](CLAUDE.md): conventions and the rules that must never be broken

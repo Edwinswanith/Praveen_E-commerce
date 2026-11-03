@@ -29,6 +29,7 @@ pnpm --filter @vyra/storefront dev       # :3000
 pnpm --filter @vyra/admin dev            # :3001
 pnpm test | pnpm typecheck | pnpm build
 apps/api/scripts/restart-api.sh          # rebuild + restart compiled API (dev helper)
+pnpm e2e                                 # Playwright full-stack tests (apps on :4000/:3000/:3001, seeded DB)
 ```
 API tests need `vyra_test` DB migrated: `DATABASE_URL=…/vyra_test pnpm --filter @vyra/api exec prisma migrate deploy`.
 Behind an HTTP proxy, Node's fetch needs `NODE_USE_ENV_PROXY=1` (Gemini/Razorpay calls).
@@ -44,6 +45,10 @@ Behind an HTTP proxy, Node's fetch needs `NODE_USE_ENV_PROXY=1` (Gemini/Razorpay
 8. Variants are never deleted (orders reference them) — they are deactivated. Colour/size of an existing variant are immutable (baked into SKU and printed labels).
 9. Prisma cannot model the HNSW index: delete any `DROP INDEX "product_embeddings_vector_hnsw"` from generated migrations (`scripts/check-migrations.sh` enforces this in CI).
 10. Don't invent credentials. Integrations without config report "pending" via `GET /api/v1/health`.
+11. **COD orders cannot be packed until `codConfirmation = CONFIRMED`** (customer OTP or staff call). RTO goes through `OrdersService.markRto` (restocks + counts refusals per phone).
+12. **OTP login never trusts an unverified phone**: only accounts with `phoneVerifiedAt` can be signed into by OTP; OTPs are stored hashed and never logged in production.
+13. Exchanges are same-product, same-price swaps fulfilled by a zero-value replacement order. Never refund an exchange that has a replacement.
+14. `GET /admin/inventory/reconcile` must always report `consistent: true`; if it doesn't, something bypassed rule 1.
 
 ## Status
 See `docs/development/development-roadmap.md` for the module checklist, known limitations and required external configuration.

@@ -188,8 +188,11 @@ export function CheckoutView() {
   }, [authLoading, user]);
 
   const selectedAddress = addresses?.find((a) => a.id === selectedAddressId) ?? null;
-  const activePincode = user ? selectedAddress?.pincode : guestAddress?.pincode;
-  const activePhone = normalizeIndianMobile((user ? selectedAddress?.phone : guestAddress?.phone) ?? '');
+  // Signed-in customer typing a new address: a complete, valid form is used as-is
+  // (the API also saves it to their address book), no extra "save" click needed.
+  const userDraft = user && addingAddress ? draftAddress : null;
+  const activePincode = user ? (userDraft?.pincode ?? selectedAddress?.pincode) : guestAddress?.pincode;
+  const activePhone = normalizeIndianMobile((user ? (userDraft?.phone ?? selectedAddress?.phone) : guestAddress?.phone) ?? '');
   // Guests and phone-only accounts need an email for the receipt.
   const needsEmail = !user || !user.email;
 
@@ -306,7 +309,7 @@ export function CheckoutView() {
       }
       email = parsed.data;
     }
-    if (user ? !selectedAddress : !guestAddress) {
+    if (user ? !(userDraft || selectedAddress) : !guestAddress) {
       setError('Please complete your delivery address.');
       return;
     }
@@ -319,7 +322,11 @@ export function CheckoutView() {
       const res = await api<CheckoutResponse>('/checkout', {
         method: 'POST',
         body: {
-          ...(user ? { addressId: selectedAddress!.id } : { address: guestAddress }),
+          ...(user
+            ? userDraft
+              ? { address: userDraft }
+              : { addressId: selectedAddress!.id }
+            : { address: guestAddress }),
           ...(email ? { guestEmail: email } : {}),
           shippingMethod: shipping,
           paymentMethod,
@@ -510,7 +517,7 @@ export function CheckoutView() {
           n={2}
           title="Delivery address"
           icon={<MapPin />}
-          done={user ? !!selectedAddress : !!guestAddress}
+          done={user ? !!(userDraft || selectedAddress) : !!guestAddress}
         >
           {user && addrLoading && <Skeleton className="h-24" />}
           {user && addresses && addresses.length > 0 && !addingAddress && (
@@ -534,6 +541,8 @@ export function CheckoutView() {
           )}
           {user && addingAddress && (
             <AddressForm
+              onDraftChange={setDraftAddress}
+              onServiceability={setSvc}
               submitLabel="Save and deliver here"
               onCancel={
                 addresses && addresses.length > 0 ? () => setAddingAddress(false) : undefined

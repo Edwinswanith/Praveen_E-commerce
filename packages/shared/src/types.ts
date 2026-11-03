@@ -296,7 +296,7 @@ export interface OrderDetailDto extends OrderSummaryDto {
 export interface CheckoutResponse {
   order: OrderDetailDto;
   /** COD: an OTP was sent to this masked phone; confirm with POST /orders/:number/confirm-cod. */
-  codOtp: null | { phoneMasked: string; expiresInSeconds: number; devCode?: string };
+  codOtp: null | { phoneMasked: string; expiresInSeconds: number; resendAfterSeconds?: number; devCode?: string };
   /** Present for ONLINE payments: pass to the provider's checkout widget. */
   payment: null | {
     provider: 'razorpay' | 'mock';

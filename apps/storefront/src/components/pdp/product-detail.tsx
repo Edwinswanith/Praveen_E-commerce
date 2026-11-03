@@ -17,6 +17,7 @@ import { Gallery } from './gallery';
 import { VariantSelector } from './variant-selector';
 import { SizeGuide } from './size-guide';
 import { PincodeCheck } from './pincode-check';
+import { FitAdvice } from './fit-advice';
 
 export function ProductDetail({ product }: { product: ProductDetailDto }) {
   const router = useRouter();
@@ -119,6 +120,7 @@ export function ProductDetail({ product }: { product: ProductDetailDto }) {
             sizeError={sizeError}
             sizeGroupRef={sizeRef}
           />
+          <FitAdvice fit={product.fit} className="mt-3" />
           <p className="mt-3 min-h-5 text-sm font-semibold text-warning" aria-live="polite">
             {soldOut ? 'This product is currently out of stock' : stock}
           </p>

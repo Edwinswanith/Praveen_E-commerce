@@ -179,3 +179,23 @@ describe('Phone OTP, COD protection, exchanges, reviews (integration)', () => {
     expect((await orders.remindAbandonedCarts()).sent).toBe(0);
   });
 });
+
+describe('Review photo validation (integration)', () => {
+  it('rejects a bad photo without saving a partial review', async () => {
+    const { bootApp: boot, createStaff: staff, createCategory: cat, productInput: input, H: h } = await import('./helpers');
+    const { app, prisma } = await boot();
+    try {
+      const admin = await staff(app, 'ADMIN');
+      const c = await cat(prisma);
+      const p = (await admin.post('/api/v1/admin/products').set(h).send(input(c.id)).expect(201)).body.data;
+      const agent = (await import('supertest')).default.agent(app.getHttpServer());
+      await agent.post('/api/v1/auth/register').set(h).send({ name: 'Rev', email: 'rev@test.local', password: 'Passw0rd!x' }).expect(201);
+      const tiny = await sharp({ create: { width: 50, height: 50, channels: 3, background: '#fff' } }).png().toBuffer();
+      const r = await agent.post(`/api/v1/products/${p.slug}/reviews`).set(h).field('rating', '5').attach('images', tiny, 'tiny.png').expect(400);
+      expect(r.body.error.message).toMatch(/200×200/);
+      expect(await prisma.review.count()).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+});

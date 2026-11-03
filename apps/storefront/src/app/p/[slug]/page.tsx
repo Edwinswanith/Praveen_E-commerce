@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { Sparkles } from 'lucide-react';
 import type { ProductCardDto, ProductDetailDto } from '@vyra/shared';
-import { Alert } from '@vyra/ui';
+import { Alert, Skeleton } from '@vyra/ui';
 import { Container } from '@/components/ui/page-header';
 import { Breadcrumb } from '@/components/ui/breadcrumb';
 import { ProductDetail } from '@/components/pdp/product-detail';
@@ -84,6 +85,70 @@ function productJsonLd(p: ProductDetailDto) {
   };
 }
 
+/** Similar + related rails: streamed in after the product so they never delay (or mask the 404 of) the main content. */
+async function Rails({
+  slug,
+  productId,
+  viewAllHref,
+}: {
+  slug: string;
+  productId: string;
+  viewAllHref: string;
+}) {
+  const [similar, related] = await Promise.all([
+    serverFetch<ProductCardDto[]>(`/products/${encodeURIComponent(slug)}/similar`, {
+      query: { limit: 12 },
+      revalidate: 300,
+    }),
+    serverFetch<ProductCardDto[]>(`/products/${encodeURIComponent(slug)}/related`, {
+      query: { limit: 12 },
+      revalidate: 300,
+    }),
+  ]);
+  const similarItems = similar.ok ? similar.data.filter((p) => p.id !== productId) : [];
+  const similarIds = new Set(similarItems.map((p) => p.id));
+  const relatedItems = related.ok
+    ? related.data.filter((p) => p.id !== productId && !similarIds.has(p.id))
+    : [];
+  return (
+    <>
+      <ProductRail
+        title="Similar products"
+        eyebrow={
+          <span className="inline-flex items-center gap-1 text-violet-600">
+            <Sparkles className="size-3" aria-hidden />
+            Visually similar · AI
+          </span>
+        }
+        products={similarItems}
+      />
+      <ProductRail
+        title="You may also like"
+        eyebrow="Pairs well with"
+        products={relatedItems}
+        viewAllHref={viewAllHref}
+      />
+    </>
+  );
+}
+
+function RailsSkeleton() {
+  return (
+    <div className="py-8" aria-busy="true" aria-label="Loading recommendations">
+      <Skeleton className="h-5 w-48" />
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-5">
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className={i >= 2 ? 'hidden sm:block' : undefined}>
+            <Skeleton className="aspect-[3/4] w-full rounded-md" />
+            <Skeleton className="mt-2 h-3 w-3/4" />
+            <Skeleton className="mt-1.5 h-3 w-1/2" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default async function ProductPage({ params }: Props) {
   const { slug } = await params;
   const res = await getProduct(slug);
@@ -98,24 +163,10 @@ export default async function ProductPage({ params }: Props) {
     );
   }
   const product = res.data;
-  const [similar, related] = await Promise.all([
-    serverFetch<ProductCardDto[]>(`/products/${encodeURIComponent(slug)}/similar`, {
-      query: { limit: 12 },
-      revalidate: 300,
-    }),
-    serverFetch<ProductCardDto[]>(`/products/${encodeURIComponent(slug)}/related`, {
-      query: { limit: 12 },
-      revalidate: 300,
-    }),
-  ]);
   const path = product.category.path.length
     ? product.category.path
     : [{ name: product.category.name, slug: product.category.slug }];
-  const similarItems = similar.ok ? similar.data.filter((p) => p.id !== product.id) : [];
-  const similarIds = new Set(similarItems.map((p) => p.id));
-  const relatedItems = related.ok
-    ? related.data.filter((p) => p.id !== product.id && !similarIds.has(p.id))
-    : [];
+  const sizes = [...new Set(product.variants.filter((v) => v.isActive).map((v) => v.size))];
 
   return (
     <Container className="pt-4">
@@ -139,25 +190,12 @@ export default async function ProductPage({ params }: Props) {
         <Specs product={product} />
       </div>
       <div className="border-t border-border">
-        <Reviews slug={product.slug} />
+        <Reviews slug={product.slug} sizes={sizes} />
       </div>
       <div className="border-t border-border">
-        <ProductRail
-          title="Similar products"
-          eyebrow={
-            <span className="inline-flex items-center gap-1 text-violet-600">
-              <Sparkles className="size-3" aria-hidden />
-              Visually similar · AI
-            </span>
-          }
-          products={similarItems}
-        />
-        <ProductRail
-          title="You may also like"
-          eyebrow="Pairs well with"
-          products={relatedItems}
-          viewAllHref={categoryHref(path)}
-        />
+        <Suspense fallback={<RailsSkeleton />}>
+          <Rails slug={slug} productId={product.id} viewAllHref={categoryHref(path)} />
+        </Suspense>
         <RecentlyViewed excludeId={product.id} />
       </div>
     </Container>
