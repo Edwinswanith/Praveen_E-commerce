@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
-import type { CategoryNode, CouponDto } from '@vyra/shared';
+import type { CampaignAdminDto, CategoryNode, CouponDto } from '@vyra/shared';
 import { couponSchema } from '@vyra/shared';
 import { Alert, Badge, Button, Field, Input, Textarea } from '@vyra/ui';
 import { Pencil, Plus, TicketPercent, Trash2 } from 'lucide-react';
@@ -17,7 +17,7 @@ import { DataTable } from '@/components/data-table/data-table';
 import { Pagination } from '@/components/data-table/pagination';
 import { PageHeader } from '@/components/ui/feedback';
 import { Dialog } from '@/components/ui/dialog';
-import { Checkbox, Segmented, Switch } from '@/components/ui/controls';
+import { Checkbox, Segmented, Select, Switch } from '@/components/ui/controls';
 import { useConfirm } from '@/components/ui/confirm';
 import { flattenTree } from '@/features/categories/tree';
 
@@ -37,6 +37,8 @@ export function PromotionsScreen() {
   const [page, setPage] = React.useState(1);
   const { data, meta, error, isLoading, mutate } = useApi<CouponDto[]>('/coupons', { page, pageSize: 25 });
   const { data: categories } = useApi<CategoryNode[]>(can(PERM.catalogRead) ? '/categories' : null);
+  const { data: campaigns } = useApi<CampaignAdminDto[]>('/campaigns');
+  const campaignName = React.useMemo(() => new Map((campaigns ?? []).map((c) => [c.id, c.name])), [campaigns]);
   const [editing, setEditing] = React.useState<CouponDto | 'new' | null>(null);
 
   const remove = React.useCallback(async (c: CouponDto) => {
@@ -52,6 +54,16 @@ export function PromotionsScreen() {
     { header: 'Validity', id: 'dates', cell: ({ row: { original: c } }) => <span className="whitespace-nowrap text-xs text-muted">{c.startsAt ? formatDate(c.startsAt) : 'Now'} → {c.expiresAt ? formatDate(c.expiresAt) : 'No end'}</span> },
     { header: 'Used', id: 'used', meta: { align: 'right' }, cell: ({ row: { original: c } }) => <span className="tabular">{formatNumber(c.usedCount)}{c.usageLimit ? ` / ${formatNumber(c.usageLimit)}` : ''}</span> },
     { header: 'Scope', id: 'scope', cell: ({ row }) => <span className="text-xs text-muted">{row.original.categoryIds.length ? `${row.original.categoryIds.length} categor${row.original.categoryIds.length === 1 ? 'y' : 'ies'}` : 'All products'}</span> },
+    {
+      header: 'Applies', id: 'apply',
+      cell: ({ row: { original: c } }) => (
+        <span className="flex flex-col items-start gap-1 text-xs">
+          {c.autoApply ? <Badge tone="violet">Auto-applied</Badge> : <span className="text-muted">Code entry</span>}
+          {!c.combinableWithPromotions && <span className="text-muted">Not with bundle offers</span>}
+          {c.campaignId && <span className="max-w-40 truncate text-muted" title="Linked campaign">{campaignName.get(c.campaignId) ?? 'Campaign'} only</span>}
+        </span>
+      ),
+    },
     { header: 'Status', id: 'status', cell: ({ row }) => { const s = couponState(row.original); return <Badge tone={s.tone}>{s.label}</Badge>; } },
     ...(canWrite ? [{
       id: 'actions', header: () => <span className="sr-only">Actions</span>,
@@ -62,14 +74,14 @@ export function PromotionsScreen() {
         </div>
       ),
     } satisfies ColumnDef<CouponDto, unknown>] : []),
-  ], [canWrite, remove]);
+  ], [canWrite, remove, campaignName]);
 
   return (
     <>
       <PageHeader title="Promotions" description="Coupon codes for percentage or flat discounts." actions={canWrite && <Button size="sm" onClick={() => setEditing('new')}><Plus /> New coupon</Button>} />
       <DataTable columns={columns} data={data} isLoading={isLoading} error={error} onRetry={() => void mutate()} getRowId={(c) => c.id}
         onRowClick={canWrite ? (c) => setEditing(c) : undefined} empty={{ icon: <TicketPercent />, title: 'No coupons yet' }} footer={<Pagination meta={meta} onPageChange={setPage} />} />
-      {editing && <CouponDialog coupon={editing === 'new' ? undefined : editing} categories={categories ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void mutate(); }} />}
+      {editing && <CouponDialog coupon={editing === 'new' ? undefined : editing} categories={categories ?? []} campaigns={campaigns ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void mutate(); }} />}
     </>
   );
 }
@@ -77,6 +89,7 @@ export function PromotionsScreen() {
 interface Values {
   code: string; description: string; type: 'PERCENTAGE' | 'FIXED'; value: string; maxDiscount: string; minOrderValue: string;
   startsAt: string; expiresAt: string; usageLimit: string; perUserLimit: string; isActive: boolean;
+  autoApply: boolean; combinableWithPromotions: boolean; campaignId: string;
 }
 
 function toLocalInput(iso: string | null): string {
@@ -87,7 +100,7 @@ function toLocalInput(iso: string | null): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-function CouponDialog({ coupon, categories, onClose, onSaved }: { coupon?: CouponDto; categories: CategoryNode[]; onClose: () => void; onSaved: () => void }) {
+function CouponDialog({ coupon, categories, campaigns, onClose, onSaved }: { coupon?: CouponDto; categories: CategoryNode[]; campaigns: CampaignAdminDto[]; onClose: () => void; onSaved: () => void }) {
   const [categoryIds, setCategoryIds] = React.useState<string[]>(coupon?.categoryIds ?? []);
   const { register, handleSubmit, setError, watch, setValue, formState: { errors, isSubmitting } } = useForm<Values>({
     defaultValues: {
@@ -95,6 +108,7 @@ function CouponDialog({ coupon, categories, onClose, onSaved }: { coupon?: Coupo
       maxDiscount: coupon?.maxDiscount != null ? String(coupon.maxDiscount) : '', minOrderValue: coupon?.minOrderValue != null ? String(coupon.minOrderValue) : '',
       startsAt: toLocalInput(coupon?.startsAt ?? null), expiresAt: toLocalInput(coupon?.expiresAt ?? null),
       usageLimit: coupon?.usageLimit != null ? String(coupon.usageLimit) : '', perUserLimit: String(coupon?.perUserLimit ?? 1), isActive: coupon?.isActive ?? true,
+      autoApply: coupon?.autoApply ?? false, combinableWithPromotions: coupon?.combinableWithPromotions ?? true, campaignId: coupon?.campaignId ?? '',
     },
   });
   const type = watch('type');
@@ -152,6 +166,26 @@ function CouponDialog({ coupon, categories, onClose, onSaved }: { coupon?: Coupo
           <Switch id="cp-active" checked={watch('isActive')} onCheckedChange={(v) => setValue('isActive', v)} />
           <label htmlFor="cp-active" className="text-sm">Active</label>
         </div>
+        <div className="flex items-start gap-3 sm:col-span-2">
+          <span className="mt-0.5"><Switch id="cp-auto" checked={watch('autoApply')} onCheckedChange={(v) => setValue('autoApply', v)} /></span>
+          <span>
+            <label htmlFor="cp-auto" className="text-sm font-medium">Apply automatically</label>
+            <p className="text-xs text-muted">Added to every qualifying bag without typing the code (the best eligible offer wins).</p>
+          </span>
+        </div>
+        <div className="flex items-start gap-3 sm:col-span-2">
+          <span className="mt-0.5"><Switch id="cp-combine" checked={watch('combinableWithPromotions')} onCheckedChange={(v) => setValue('combinableWithPromotions', v)} /></span>
+          <span>
+            <label htmlFor="cp-combine" className="text-sm font-medium">Combine with bundle offers</label>
+            <p className="text-xs text-muted">When off, a bag that gets a bundle offer (e.g. Buy 2, extra 10% off) gets whichever discount is larger, not both.</p>
+          </span>
+        </div>
+        <Field label="Campaign" htmlFor="cp-campaign" error={errors.campaignId?.message} hint="Optional. A linked coupon only works while that campaign is selling and counts towards its budget." className="sm:col-span-2">
+          <Select id="cp-campaign" {...register('campaignId')}>
+            <option value="">Not linked to a campaign</option>
+            {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}{c.edition ? ` ${c.edition}` : ''}</option>)}
+          </Select>
+        </Field>
       </form>
     </Dialog>
   );

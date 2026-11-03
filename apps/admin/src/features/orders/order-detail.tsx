@@ -117,7 +117,7 @@ export function OrderDetail({ id }: { id: string }) {
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
+        <div className="min-w-0 space-y-5 lg:col-span-2">
           <Card className="overflow-hidden">
             <CardHeader><CardTitle>Items</CardTitle><span className="text-xs text-muted">{formatNumber(o.itemCount)} units</span></CardHeader>
             <div className="overflow-x-auto">
@@ -227,7 +227,7 @@ export function OrderDetail({ id }: { id: string }) {
           </Card>
         </div>
 
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <Card>
             <CardHeader><CardTitle>Customer</CardTitle>{o.customer && can(PERM.customersRead) && <Link href={`/customers/${o.customer.id}`} className="text-xs font-semibold text-muted hover:text-fg">Profile</Link>}</CardHeader>
             <CardContent className="space-y-1 text-sm">
@@ -252,6 +252,7 @@ export function OrderDetail({ id }: { id: string }) {
               <dl className="tabular space-y-1.5 text-sm">
                 <Row label="MRP total" value={formatINR(o.mrpTotal)} />
                 <Row label="Subtotal" value={formatINR(o.subtotal)} />
+                {o.promotionDiscount > 0 && <Row label="Bundle offer" value={`− ${formatINR(o.promotionDiscount)}`} />}
                 {o.prepaidDiscount > 0 && <Row label="Prepaid discount" value={`− ${formatINR(o.prepaidDiscount)}`} />}
                 {o.couponDiscount > 0 && <Row label={`Coupon${o.couponCode ? ` (${o.couponCode})` : ''}`} value={`− ${formatINR(o.couponDiscount)}`} />}
                 <Row label="Shipping" value={o.shippingFee ? formatINR(o.shippingFee) : 'Free'} />
@@ -260,6 +261,7 @@ export function OrderDetail({ id }: { id: string }) {
                 <div className="flex justify-between border-t border-border pt-2 text-base font-semibold"><dt>Total</dt><dd>{formatINR(o.grandTotal)}</dd></div>
                 {refunded > 0 && <Row label="Refunded" value={`− ${formatINR(refunded)}`} />}
               </dl>
+              <SavingsBreakdown savings={o.savings} />
             </CardContent>
           </Card>
           <Card>
@@ -297,4 +299,27 @@ export function OrderDetail({ id }: { id: string }) {
 
 function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return <div className={cn('flex justify-between', muted && 'text-muted')}><dt className="text-muted">{label}</dt><dd>{value}</dd></div>;
+}
+
+/** Where the customer's discount came from (order discount ledger). Hidden when there were no savings. */
+export function SavingsBreakdown({ savings }: { savings: AdminOrderDetail['savings'] | undefined }) {
+  if (!savings) return null;
+  const parts = [
+    { label: 'Sale price', value: savings.campaign },
+    { label: 'Bundle offer', value: savings.promotion },
+    { label: 'Coupon', value: savings.coupon },
+    { label: 'Prepaid', value: savings.prepaid },
+  ];
+  const total = parts.reduce((s, p) => s + p.value, 0);
+  if (total <= 0) return null;
+  return (
+    <div className="mt-4 rounded-md bg-emerald-50 p-3 text-sm" aria-label="Customer savings">
+      <p className="flex justify-between font-semibold text-emerald-800"><span>Customer saved</span><span className="tabular">{formatINR(total)}</span></p>
+      <dl className="tabular mt-1.5 space-y-1 text-xs">
+        {parts.filter((p) => p.value > 0).map((p) => (
+          <div key={p.label} className="flex justify-between text-emerald-900/80"><dt>{p.label}</dt><dd>{formatINR(p.value)}</dd></div>
+        ))}
+      </dl>
+    </div>
+  );
 }

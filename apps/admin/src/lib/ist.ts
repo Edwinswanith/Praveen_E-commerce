@@ -11,11 +11,12 @@ const LOCAL_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
 export function istInputToIso(value: string | null | undefined): string | null {
   const m = value ? LOCAL_RE.exec(value.trim()) : null;
   if (!m) return null;
-  const [, y, mo, d, h, mi, s] = m.map(Number) as number[];
-  const utc = Date.UTC(y!, mo! - 1, d!, h!, mi!, s ?? 0) - IST_OFFSET_MS;
+  const [y, mo, d, h, mi, s] = m.slice(1).map((x) => (x === undefined ? 0 : Number(x))) as [number, number, number, number, number, number];
+  if (h > 23 || mi > 59 || s > 59) return null;
+  const utc = Date.UTC(y, mo - 1, d, h, mi, s) - IST_OFFSET_MS;
   const check = new Date(utc + IST_OFFSET_MS);
   // Reject overflow such as 2026-02-31.
-  if (check.getUTCMonth() !== mo! - 1 || check.getUTCDate() !== d!) return null;
+  if (check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
   return new Date(utc).toISOString();
 }
 
