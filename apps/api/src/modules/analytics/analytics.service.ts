@@ -140,7 +140,7 @@ export class AnalyticsService {
                  sum(e.value) FILTER (WHERE e.type = 'ORDER_PLACED') AS revenue
             FROM analytics_events e WHERE ${range} GROUP BY e."sessionId")
         SELECT coalesce(source, 'direct') AS source, count(*)::bigint AS sessions, count(*) FILTER (WHERE orders > 0)::bigint AS orders, sum(revenue) AS revenue
-          FROM s GROUP BY 1 ORDER BY sessions DESC LIMIT 20`,
+          FROM s GROUP BY 1 ORDER BY sessions DESC, source LIMIT 20`,
       this.prisma.$queryRaw<{ productId: string; name: string; views: bigint; carts: bigint; tryons: bigint }[]>`
         SELECT e."productId", max(p.name) AS name,
                count(DISTINCT e."sessionId") FILTER (WHERE e.type = 'PRODUCT_VIEW')::bigint AS views,

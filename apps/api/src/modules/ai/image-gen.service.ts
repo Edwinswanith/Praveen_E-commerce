@@ -2,7 +2,7 @@ import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ENV, type Env } from '../../config/env';
 import { AppError } from '../../common/http/errors';
 
-export type PhotoStyle = 'MODEL' | 'STUDIO' | 'FLATLAY' | 'LIFESTYLE';
+export type PhotoStyle = 'MODEL' | 'STUDIO' | 'FLATLAY' | 'LIFESTYLE' | 'MARKETPLACE';
 
 export interface PhotoSubject {
   name: string;
@@ -31,7 +31,12 @@ export function buildPhotoPrompt(s: PhotoSubject, style: PhotoStyle, opts: { has
   const angle = opts.angle === 'back' ? 'back view showing the back of the garment' : opts.angle === 'detail' ? 'close-up detail shot of the fabric texture, stitching and neckline' : 'front view';
 
   let scene: string;
-  if (accessory) {
+  if (effective === 'MARKETPLACE') {
+    // Marketplace main-image conventions (Amazon/Flipkart): pure white, product only, fills ~85% of the frame.
+    scene = accessory
+      ? `A ${garment} as a standalone product shot, ${angle}, centred on a pure white (#FFFFFF) seamless background, the product filling about 85% of the frame, soft even studio lighting with a subtle natural contact shadow, no props.`
+      : `A ${garment} on an invisible ghost mannequin, ${angle}, showing its natural 3D shape and drape, centred on a pure white (#FFFFFF) seamless background, the garment filling about 85% of the frame height, soft even studio lighting with a subtle natural shadow, crisp edges, no props, no person.`;
+  } else if (accessory) {
     scene = effective === 'LIFESTYLE'
       ? `${wearer} carrying/wearing a ${garment} on a tasteful Indian city street, soft natural daylight, shallow depth of field, the product is the hero.`
       : `A ${garment} as a standalone product shot, ${angle}, centred on a plain warm light-grey seamless studio background, soft diffused lighting, gentle shadow.`;
@@ -45,10 +50,10 @@ export function buildPhotoPrompt(s: PhotoSubject, style: PhotoStyle, opts: { has
     scene = `A ${garment} on an invisible ghost mannequin, ${angle}, showing natural shape and drape, plain pure light-grey studio background, soft even e-commerce lighting.`;
   }
   const reference = opts.hasReference
-    ? 'Use the garment in the reference image EXACTLY: identical colour, fabric, print, neckline, sleeve length, hem length, buttons, pockets and every detail. Do not redesign, recolour or add anything to the garment. Only change the presentation.'
+    ? 'The reference image is a real photo of the product being sold. Reproduce that product EXACTLY: identical colour and shade, fabric texture, print and pattern placement, neckline, sleeve length, hem length, buttons, pockets, stitching and every other detail and proportion. Do not redesign, recolour, smooth away texture, or add or remove anything on the product. Only change the background, lighting, framing and presentation. Remove the original background, hanger, hands and clutter.'
     : '';
   const prompt = [
-    'Professional e-commerce fashion catalogue photograph for an Indian clothing brand, 4:5 portrait.',
+    effective === 'MARKETPLACE' ? 'Professional e-commerce marketplace main product image, 4:5 portrait, high resolution, sharp focus.' : 'Professional e-commerce fashion catalogue photograph for an Indian clothing brand, 4:5 portrait.',
     scene,
     details ? `Garment details: ${details}.` : '',
     s.description ? `Product description: ${s.description.slice(0, 300)}` : '',

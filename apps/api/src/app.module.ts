@@ -28,6 +28,7 @@ import { BarcodesController, InventoryController } from './modules/inventory/inv
 import { MediaService } from './modules/media/media.service';
 import { EmbeddingService } from './modules/ai/embedding.service';
 import { ImageGenService } from './modules/ai/image-gen.service';
+import { PhotoPreviewStore } from './modules/ai/photo-preview.store';
 import { CouponsService } from './modules/coupons/coupons.service';
 import { CartService } from './modules/carts/cart.service';
 import { CartController, PublicCouponsController } from './modules/carts/cart.controller';
@@ -80,7 +81,7 @@ import { AdminCampaignsController, AdminPromotionsController, CampaignsControlle
     PrismaService, AuditService, MailService, StorageService, QueueService, AttemptLimiter,
     TokenService, AuthService, CategoriesService, ProductsService, ProductImportService, BarcodesService, InventoryService,
     MediaService, EmbeddingService, CouponsService, CartService, PaymentsGateway, ShippingService, ShiprocketWebhookService, NewsletterService, OrdersService, InvoiceService,
-    SearchService, AnalyticsService, MessagingService, OtpService, CodService, ImageGenService, EventsService, TryOnService,
+    SearchService, AnalyticsService, MessagingService, OtpService, CodService, ImageGenService, PhotoPreviewStore, EventsService, TryOnService,
     CampaignPricingService, CampaignsService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },

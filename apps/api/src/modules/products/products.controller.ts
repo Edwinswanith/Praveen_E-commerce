@@ -1,26 +1,32 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, StreamableFile, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, StreamableFile, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { memoryStorage } from 'multer';
 import { z } from 'zod';
 import {
-  aiPhotoSchema, paginationSchema, productListQuerySchema, productSchema, productUpdateSchema, reviewSchema,
-  type AiPhotoInput, type ProductInput, type ProductListQuery, type ReviewDto,
+  aiPhotoAcceptSchema, aiPhotoPreviewSchema, aiPhotoSchema, paginationSchema, productListQuerySchema, productSchema, productUpdateSchema, reviewSchema,
+  type AiPhotoAcceptInput, type AiPhotoInput, type AiPhotoPreviewDto, type AiPhotoPreviewInput, type ProductImageDto, type ProductInput, type ProductListQuery, type ReviewDto,
 } from '@vyra/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { parseOrThrow, ZodPipe } from '../../common/http/zod.pipe';
 import { paginated } from '../../common/http/envelope';
-import { badRequest, notFound } from '../../common/http/errors';
+import { AppError, badRequest, notFound } from '../../common/http/errors';
 import { StorageService } from '../../common/storage/storage.service';
 import { CurrentUser, Public, RequirePermissions, StaffOnly, type AuthUser } from '../auth/auth.decorators';
 import { EmbeddingService } from '../ai/embedding.service';
-import { buildPhotoPrompt, ImageGenService } from '../ai/image-gen.service';
-import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MediaService } from '../media/media.service';
+import { buildPhotoPrompt, ImageGenService, type PhotoStyle } from '../ai/image-gen.service';
+import { PhotoPreviewStore } from '../ai/photo-preview.store';
+import { edgeWhiteRatio, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MediaService } from '../media/media.service';
 import { ProductsService } from './products.service';
 import { ProductImportService } from './import.service';
 import { refreshRating } from './review-rating';
+
+const aiAlt = (name: string, color: string, style: PhotoStyle) => `${name} in ${color} (AI-styled ${style.toLowerCase()} photo)`;
+const imageDto = (i: { id: string; url: string; thumbUrl: string; alt: string; color: string | null; sortOrder: number; width: number | null; height: number | null; aiGenerated: boolean; sourceImageId: string | null }): ProductImageDto => ({
+  id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated, sourceImageId: i.sourceImageId,
+});
 
 const limitQ = z.object({ limit: z.coerce.number().int().min(1).max(24).default(12) });
 
@@ -145,6 +151,7 @@ export class AdminProductsController {
     private readonly audit: AuditService,
     private readonly embeddings: EmbeddingService,
     private readonly imageGen: ImageGenService,
+    private readonly previews: PhotoPreviewStore,
   ) {}
 
   @RequirePermissions('catalog:read') @Get()
@@ -221,7 +228,7 @@ export class AdminProductsController {
       }));
     }
     await this.embeddings.enqueue(id);
-    return out.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated }));
+    return out.map(imageDto);
   }
 
   /**
@@ -232,33 +239,106 @@ export class AdminProductsController {
    */
   @RequirePermissions('catalog:write') @Post(':id/images/generate') @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async generateImages(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(aiPhotoSchema)) body: AiPhotoInput) {
+    const ctx = await this.aiContext(id, body.sourceImageId, body.color);
+    const angles = (['front', 'detail'] as const).slice(0, body.count);
+    let order = ctx.imageCount;
+    const created = [];
+    for (const angle of angles) {
+      const { prompt, style } = buildPhotoPrompt(ctx.subject, body.style, { hasReference: ctx.refs.length > 0, angle, notes: body.notes });
+      const img = await this.imageGen.generate(prompt, ctx.refs);
+      const s = await this.media.storeProductImage(id, img);
+      created.push(await this.prisma.productImage.create({
+        data: {
+          productId: id, storageKey: s.key, url: s.url, thumbUrl: s.thumbUrl, width: s.width, height: s.height, mimeType: 'image/webp', bytes: s.bytes, contentHash: s.hash,
+          color: ctx.color, alt: aiAlt(ctx.name, ctx.color, style), sortOrder: order++, aiGenerated: true, aiPrompt: `${this.imageGen.model}: ${prompt}`.slice(0, 4000), sourceImageId: ctx.source?.id ?? null,
+        },
+      }));
+    }
+    await this.embeddings.enqueue(id);
+    await this.audit.log({ actorId: u.id, action: 'product.image.ai_generate', entity: 'Product', entityId: id, after: { style: body.style, color: ctx.color, fromRealPhoto: !!ctx.source, count: created.length } });
+    return created.map(imageDto);
+  }
+
+  /**
+   * Generate ONE AI photo for review. The result is held server-side for 30 min
+   * and is NOT part of the product: nothing is stored, listed or embedded until
+   * staff accept it. The source photo is only read, never changed.
+   * Regenerate = call again; keep original = discard (or let it expire).
+   */
+  @RequirePermissions('catalog:write') @Post(':id/images/ai-previews') @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async previewImage(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body(new ZodPipe(aiPhotoPreviewSchema)) body: AiPhotoPreviewInput): Promise<AiPhotoPreviewDto> {
+    const ctx = await this.aiContext(id, body.sourceImageId, body.color);
+    const { prompt, style } = buildPhotoPrompt(ctx.subject, body.style, { hasReference: ctx.refs.length > 0, angle: body.angle, notes: body.notes });
+    const raw = await this.imageGen.generate(prompt, ctx.refs);
+    const processed = await this.media.processImage(raw); // what accept will store, byte for byte
+    const { id: previewId, expiresAt } = await this.previews.put({
+      productId: id, sourceImageId: ctx.source?.id ?? null, style, color: ctx.color, alt: aiAlt(ctx.name, ctx.color, style),
+      aiPrompt: `${this.imageGen.model}: ${prompt}`.slice(0, 4000), actorId: u.id, createdAt: new Date().toISOString(),
+    }, raw);
+    await this.audit.log({ actorId: u.id, action: 'product.image.ai_preview', entity: 'Product', entityId: id, after: { previewId, style, color: ctx.color, sourceImageId: ctx.source?.id ?? null } });
+    return {
+      previewId, dataUrl: `data:image/webp;base64,${processed.buffer.toString('base64')}`, width: processed.width, height: processed.height, bytes: processed.bytes,
+      style, color: ctx.color, edgeWhiteRatio: await edgeWhiteRatio(processed.buffer), expiresAt: expiresAt.toISOString(),
+      source: ctx.source ? { id: ctx.source.id, url: ctx.source.url, thumbUrl: ctx.source.thumbUrl, width: ctx.source.width, height: ctx.source.height } : null,
+    };
+  }
+
+  /** Save a reviewed preview as a new product image (the original stays as it is). */
+  @RequirePermissions('catalog:write') @Post(':id/images/ai-previews/:previewId/accept')
+  async acceptPreview(@CurrentUser() u: AuthUser, @Param('id') id: string, @Param('previewId') previewId: string, @Body(new ZodPipe(aiPhotoAcceptSchema)) body: AiPhotoAcceptInput): Promise<ProductImageDto> {
+    const p = await this.previews.get(previewId);
+    if (!p || p.meta.productId !== id) throw notFound('Preview (it may have expired; generate it again)');
+    const product = await this.prisma.product.findFirst({ where: { id, deletedAt: null }, include: { _count: { select: { images: true } } } });
+    if (!product) throw notFound('Product');
+    if (product._count.images >= 20) throw badRequest('A product can have at most 20 images');
+    // The source may have been deleted while the preview was open: keep the link only if it still exists.
+    const source = p.meta.sourceImageId ? await this.prisma.productImage.findFirst({ where: { id: p.meta.sourceImageId, productId: id }, select: { id: true } }) : null;
+    if (product.status === 'ACTIVE' && !source) throw badRequest('The real photo this was generated from has been deleted. Live products need AI photos made from a real photo.');
+    if (!(await this.previews.take(previewId))) throw notFound('Preview (it was already accepted or discarded)');
+    const s = await this.media.storeProductImage(id, p.image);
+    const img = await this.prisma.$transaction(async (tx) => {
+      if (body.placement === 'PRIMARY') await tx.productImage.updateMany({ where: { productId: id }, data: { sortOrder: { increment: 1 } } });
+      const last = await tx.productImage.aggregate({ where: { productId: id }, _max: { sortOrder: true } });
+      return tx.productImage.create({
+        data: {
+          productId: id, storageKey: s.key, url: s.url, thumbUrl: s.thumbUrl, width: s.width, height: s.height, mimeType: 'image/webp', bytes: s.bytes, contentHash: s.hash,
+          color: p.meta.color, alt: p.meta.alt, aiGenerated: true, aiPrompt: p.meta.aiPrompt, sourceImageId: source?.id ?? null,
+          sortOrder: body.placement === 'PRIMARY' ? 0 : (last._max.sortOrder ?? -1) + 1,
+        },
+      });
+    });
+    await this.embeddings.enqueue(id);
+    await this.audit.log({ actorId: u.id, action: 'product.image.ai_accept', entity: 'ProductImage', entityId: img.id, after: { productId: id, previewId, placement: body.placement, style: p.meta.style, sourceImageId: img.sourceImageId } });
+    return imageDto(img);
+  }
+
+  /** "Keep original": drop the preview. Idempotent; nothing was saved to the product. */
+  @RequirePermissions('catalog:write') @Delete(':id/images/ai-previews/:previewId')
+  async discardPreview(@Param('id') id: string, @Param('previewId') previewId: string) {
+    const p = await this.previews.get(previewId);
+    if (p && p.meta.productId === id) await this.previews.take(previewId);
+    return { ok: true };
+  }
+
+  /**
+   * Loads what an AI photo needs and enforces CLAUDE.md rule 15: a live product's
+   * AI photos are made only from a real (non-AI) photo of the garment.
+   */
+  private async aiContext(id: string, sourceImageId: string | undefined, colorIn: string | undefined) {
     const product = await this.prisma.product.findFirst({
       where: { id, deletedAt: null },
       include: { category: true, attributes: true, images: true, variants: { where: { isActive: true }, select: { color: true }, take: 1 } },
     });
     if (!product) throw notFound('Product');
-    const source = body.sourceImageId ? product.images.find((i) => i.id === body.sourceImageId) : undefined;
-    if (body.sourceImageId && !source) throw notFound('Source image');
-    const color = body.color ?? source?.color ?? product.variants[0]?.color ?? 'neutral';
+    const source = sourceImageId ? product.images.find((i) => i.id === sourceImageId) : undefined;
+    if (sourceImageId && !source) throw notFound('Source image');
+    if (source?.aiGenerated) throw badRequest('Choose a real photo of the garment as the source, not an AI image');
+    if (!source && product.status === 'ACTIVE') throw badRequest('Live products need a real photo of the garment: upload one and select it as the source');
+    if (!this.imageGen.configured) throw new AppError('NOT_CONFIGURED', 'AI photography needs GEMINI_API_KEY', HttpStatus.SERVICE_UNAVAILABLE);
+    const color = colorIn ?? source?.color ?? product.variants[0]?.color ?? 'neutral';
     const subject = { name: product.name, gender: product.gender, category: product.category.name, color, description: product.description, attributes: Object.fromEntries(product.attributes.map((a) => [a.key, a.value])) };
     const refs = source ? [{ data: await this.storage.get(source.storageKey), mimeType: source.mimeType }] : [];
-    const angles = (['front', 'detail'] as const).slice(0, body.count);
-    let order = product.images.length;
-    const created = [];
-    for (const angle of angles) {
-      const { prompt, style } = buildPhotoPrompt(subject, body.style, { hasReference: refs.length > 0, angle, notes: body.notes });
-      const img = await this.imageGen.generate(prompt, refs);
-      const s = await this.media.storeProductImage(id, img);
-      created.push(await this.prisma.productImage.create({
-        data: {
-          productId: id, storageKey: s.key, url: s.url, thumbUrl: s.thumbUrl, width: s.width, height: s.height, mimeType: 'image/webp', bytes: s.bytes, contentHash: s.hash,
-          color, alt: `${product.name} in ${color} (AI-styled ${style.toLowerCase()} photo)`, sortOrder: order++, aiGenerated: true, aiPrompt: `${this.imageGen.model}: ${prompt}`.slice(0, 4000),
-        },
-      }));
-    }
-    await this.embeddings.enqueue(id);
-    await this.audit.log({ actorId: u.id, action: 'product.image.ai_generate', entity: 'Product', entityId: id, after: { style: body.style, color, fromRealPhoto: !!source, count: created.length } });
-    return created.map((i) => ({ id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated }));
+    return { name: product.name, source, subject, refs, color, imageCount: product.images.length };
   }
 
   @RequirePermissions('catalog:write') @Patch(':id/images/:imageId')
@@ -266,7 +346,7 @@ export class AdminProductsController {
     const img = await this.prisma.productImage.findFirst({ where: { id: imageId, productId: id } });
     if (!img) throw notFound('Image');
     const i = await this.prisma.productImage.update({ where: { id: imageId }, data: body });
-    return { id: i.id, url: i.url, thumbUrl: i.thumbUrl, alt: i.alt, color: i.color, sortOrder: i.sortOrder, width: i.width, height: i.height, aiGenerated: i.aiGenerated };
+    return imageDto(i);
   }
 
   @RequirePermissions('catalog:write') @Delete(':id/images/:imageId')

@@ -729,6 +729,10 @@ model ProductImage {
   aiGenerated Boolean  @default(false)
   /// Generation prompt/model, for audit and regeneration.
   aiPrompt    String?
+  /// For AI images: the real photo used as the reference. The source is never modified.
+  sourceImageId String?
+  sourceImage   ProductImage?  @relation("AiImageSource", fields: [sourceImageId], references: [id], onDelete: SetNull)
+  derivedImages ProductImage[] @relation("AiImageSource")
   createdAt  DateTime @default(now()) @db.Timestamptz(3)
 
   embeddings ProductEmbedding[]

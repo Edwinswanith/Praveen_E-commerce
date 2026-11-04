@@ -202,7 +202,18 @@ Permission strings are `resource:action`. Role grants live in `apps/api/src/modu
 | `GET /admin/analytics/cod?from&to` → `CodAnalyticsDto` | `analytics:read` |
 | `GET /admin/analytics/return-rates?from&to` → `ProductReturnRateDto[]` | `analytics:read` |
 | `GET /admin/customers/:id` now `CustomerDetailDto` (adds `stats.rto`, `codRisk`) | `customers:read` |
-| `POST /admin/products/:id/images/generate` body `aiPhotoSchema` `{ sourceImageId?, style: MODEL\|STUDIO\|FLATLAY\|LIFESTYLE, color?, notes?, count: 1\|2 }` → `ProductImageDto[]` (`aiGenerated: true`). With `sourceImageId` the real garment is kept exactly; kids items never use a generated child model | `catalog:write` |
+| `POST /admin/products/:id/images/generate` body `aiPhotoSchema` `{ sourceImageId?, style: MODEL\|STUDIO\|FLATLAY\|LIFESTYLE\|MARKETPLACE, color?, notes?, count: 1\|2 }` → `ProductImageDto[]` (`aiGenerated: true`). Saves immediately (no review); the admin UI uses the preview flow below instead. With `sourceImageId` the real garment is kept exactly; kids items never use a generated child model; **ACTIVE products require a real (non-AI) `sourceImageId`** (400 otherwise) | `catalog:write` |
+
+### AI photo preview workflow (v1.4)
+Upload the real photo with `POST /admin/products/:id/images` as before (it is stored unchanged as a normal product image), then:
+
+| Endpoint | Permission |
+| --- | --- |
+| `POST /admin/products/:id/images/ai-previews` body `aiPhotoPreviewSchema` `{ sourceImageId?, style = MARKETPLACE, color?, notes?, angle: front\|detail }` → 201 `AiPhotoPreviewDto { previewId, dataUrl (WebP exactly as it would be stored), width, height, bytes, style, color, source {id,url,thumbUrl,width,height} \| null, edgeWhiteRatio, expiresAt }`. One paid Gemini image-to-image call with the source photo as the reference. **Nothing is added to the product.** The preview is held server-side for 30 min (Redis; in-memory when queues are off), at most 6 per product. Throttled 10/min per client. Errors: 400 no real source for an ACTIVE product, or an AI image as the source; 404 product/source; 502 the model returned no image; 503 `GEMINI_API_KEY` missing | `catalog:write` |
+| `POST /admin/products/:id/images/ai-previews/:previewId/accept` body `{ placement: PRIMARY\|END = END }` → 201 `ProductImageDto` (`aiGenerated: true`, `sourceImageId`). Runs the normal image pipeline (WebP 1600 px + 600 px thumb, EXIF stripped), re-queues search embeddings. PRIMARY makes it the cover (cards, search, scanner). Exactly one of several concurrent accepts succeeds; the others get 404. 404 when expired, already accepted or discarded, or from another product | `catalog:write` |
+| `DELETE /admin/products/:id/images/ai-previews/:previewId` → `{ ok: true }`: "keep original". Idempotent (200 when already gone) | `catalog:write` |
+
+Regenerate = call `ai-previews` again (the client discards the previous preview). `MARKETPLACE` asks for the product alone on pure white (#FFFFFF), filling ~85% of the frame, the usual main-image rule on Amazon and Flipkart; `edgeWhiteRatio` (share of near-white border pixels) lets the UI flag a background that is not white. `ProductImageDto.sourceImageId` links an AI image to its real photo (set to null if that photo is deleted).
 
 ### Garment tag QR links
 - QR labels encode `${STOREFRONT_URL}/s/<SKU>` (stable forever: printed on tags). The storefront route redirects to `/p/<slug>?variant=<id>&utm_source=tag&utm_medium=qr` with colour + size preselected; unknown/retired SKUs land on search.

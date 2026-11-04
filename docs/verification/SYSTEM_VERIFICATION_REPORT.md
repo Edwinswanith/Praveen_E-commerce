@@ -3,6 +3,7 @@
 Verification pass on branch `claude/youthful-brown-kd52jo`, 3–4 Nov 2026. Everything below was run in an isolated environment: a local cloud container with a local PostgreSQL and Redis, the dev and test databases, a mock payment provider and console SMS. No production data, live payment or real customer message was involved.
 
 Companion documents:
+- `AI_PHOTO_AND_MEDIA_REPORT.md`: later the same day. Image upload and barcode runtime checks, plus the AI photo preview workflow (+3 routes, now 181; 413 tests)
 - `API_VERIFICATION_MATRIX.csv`: one row per endpoint with evidence
 - `BUG_FIX_REPORT.md`
 - `E2E_TEST_REPORT.md`

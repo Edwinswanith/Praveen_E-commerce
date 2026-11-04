@@ -285,7 +285,7 @@ function ProductForm({ product, onSaved, onMediaChanged }: { product?: AdminProd
             <CardHeader><CardTitle>Media</CardTitle></CardHeader>
             <CardContent>
               {product ? (
-                <MediaManager productId={product.id} images={product.images} videos={product.videos} colours={colourNames} onChanged={onMediaChanged} canWrite={canWrite} />
+                <MediaManager productId={product.id} images={product.images} videos={product.videos} colours={colourNames} onChanged={onMediaChanged} canWrite={canWrite} live={product.status === 'ACTIVE'} />
               ) : (
                 <p className="text-sm text-muted">Save the product first, then upload images and videos here.</p>
               )}

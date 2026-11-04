@@ -54,6 +54,25 @@ export interface ProductImageDto {
   height: number | null;
   /** AI-generated/styled image: storefront shows a disclosure. */
   aiGenerated: boolean;
+  /** For AI images: the real photo it was generated from (null when none or deleted). */
+  sourceImageId?: string | null;
+}
+
+/** An AI photo held server-side for review; it is not part of the product yet. */
+export interface AiPhotoPreviewDto {
+  previewId: string;
+  /** The optimised WebP exactly as it will be stored if accepted. */
+  dataUrl: string;
+  width: number;
+  height: number;
+  bytes: number;
+  style: 'MODEL' | 'STUDIO' | 'FLATLAY' | 'LIFESTYLE' | 'MARKETPLACE';
+  color: string;
+  /** The real photo used as the reference, or null when generated from product details (drafts only). */
+  source: { id: string; url: string; thumbUrl: string; width: number | null; height: number | null } | null;
+  /** Share of border pixels that are near-white (0..1). Marketplaces (Amazon, Flipkart) expect ~1 for the main image. */
+  edgeWhiteRatio: number;
+  expiresAt: string;
 }
 
 export interface ProductVideoDto { id: string; url: string; posterUrl: string | null }

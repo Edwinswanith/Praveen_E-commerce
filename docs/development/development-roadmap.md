@@ -2,6 +2,8 @@
 
 Last verified: 2026-11-04 (verification pass). Totals: **398 automated tests** (shared 40, API 119 against real Postgres incl. a contract sweep over all 178 routes and concurrency invariants, storefront 107, admin 132) plus **29 Playwright browser tests** (`pnpm e2e`). Evidence and open blockers: `docs/verification/` (verdict: NOT READY until provider credentials and deployment controls are verified). Typecheck and production builds pass for every package from a clean `--force` build.
 
+2026-11-04 (later): AI photo preview workflow (upload original → Gemini image-to-image preview → compare → accept / regenerate / keep original), MARKETPLACE white-background style, rule-15 enforcement, image upload + barcode runtime checks. Totals now **413 automated tests** (API 131, admin 135) and 181 routes in the contract sweep. Evidence: `docs/verification/AI_PHOTO_AND_MEDIA_REPORT.md`.
+
 ## Verification performed (beyond unit tests)
 - **Real browser, storefront**: home → category → PDP (variant selector) → add to bag → guest checkout → TEST MODE payment → server signature verification → confirmation. Result in the DB: order `CONFIRMED`, payment `CAPTURED`. No page errors, and no horizontal overflow at 390px.
 - **Real browser, admin**: owner login, then all 13 sections loaded against seeded data with zero HTTP/page errors. Scanner RECEIVE flow: the scan left stock unchanged (37→37), and the explicit confirmation wrote `STOCK_IN +1` linked to the scan id (→38).

@@ -8,9 +8,11 @@ test('@mobile a shopper journey lands in the conversion funnel with its source a
   const login = await request.post(`${API}/api/v1/admin/auth/login`, { headers: { 'X-Requested-With': 'vyra' }, data: { email: 'owner@vyra.local', password: STAFF_PASSWORD } });
   expect(login.ok()).toBeTruthy();
   const funnel = async (r: APIRequestContext): Promise<Funnel> => (await (await r.get(`${API}/api/v1/admin/analytics/funnel`)).json()).data;
+  // One stable first-touch source per project (desktop + mobile run in parallel). A unique source per run
+  // piled up 1-session sources until ours fell outside the funnel's top-20 list and the test flaked.
+  const source = `e2e_${info.project.name}`;
+  const sessionsOf = (f: Funnel) => f.bySource.find((x) => x.source === source)?.sessions ?? 0;
   const before = await funnel(request);
-  // Unique first-touch source per run: desktop + mobile projects run in parallel.
-  const source = `e2e_${info.project.name}_${Date.now()}`;
   const slug = await inStockProductSlug(request);
   const views = page.waitForResponse((r) => r.url().includes('/api/v1/events') && r.status() === 202);
   await page.goto(`${STORE}/p/${slug}?utm_source=${source}`);
@@ -20,7 +22,7 @@ test('@mobile a shopper journey lands in the conversion funnel with its source a
     const after = await funnel(request);
     const n = (f: Funnel, s: string) => f.steps.find((x) => x.step === s)!.sessions;
     return {
-      ourSession: after.bySource.find((x) => x.source === source)?.sessions ?? 0,
+      ourSession: sessionsOf(after) - sessionsOf(before),
       viewsUp: n(after, 'PRODUCT_VIEW') > n(before, 'PRODUCT_VIEW'),
       cartsUp: n(after, 'ADD_TO_CART') > n(before, 'ADD_TO_CART'),
     };

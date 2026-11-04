@@ -287,12 +287,34 @@ export const staffUserSchema = z.object({
 export const aiPhotoSchema = z.object({
   /** Existing product image of the REAL garment to restyle. Strongly recommended for live products. */
   sourceImageId: cuid.optional(),
-  style: z.enum(['MODEL', 'STUDIO', 'FLATLAY', 'LIFESTYLE']).default('MODEL'),
+  style: z.enum(['MODEL', 'STUDIO', 'FLATLAY', 'LIFESTYLE', 'MARKETPLACE']).default('MODEL'),
   color: z.string().trim().max(40).optional(),
   notes: z.string().trim().max(300).optional(),
   count: z.coerce.number().int().min(1).max(2).default(1),
 });
 export type AiPhotoInput = z.infer<typeof aiPhotoSchema>;
+export const AI_PHOTO_STYLES = ['MODEL', 'STUDIO', 'FLATLAY', 'LIFESTYLE', 'MARKETPLACE'] as const;
+export type AiPhotoStyle = (typeof AI_PHOTO_STYLES)[number];
+
+/**
+ * Generate ONE AI photo as a preview. Nothing is saved to the product until the
+ * preview is accepted; the source photo is never modified. Live (ACTIVE)
+ * products require `sourceImageId` of a real (non-AI) photo (CLAUDE.md rule 15).
+ */
+export const aiPhotoPreviewSchema = z.object({
+  sourceImageId: cuid.optional(),
+  style: z.enum(AI_PHOTO_STYLES).default('MARKETPLACE'),
+  color: z.string().trim().max(40).optional(),
+  notes: z.string().trim().max(300).optional(),
+  angle: z.enum(['front', 'detail']).default('front'),
+});
+export type AiPhotoPreviewInput = z.infer<typeof aiPhotoPreviewSchema>;
+
+/** Accept a preview: PRIMARY puts it first (cards, scanner, search), END appends it. */
+export const aiPhotoAcceptSchema = z.object({
+  placement: z.enum(['PRIMARY', 'END']).default('END'),
+});
+export type AiPhotoAcceptInput = z.infer<typeof aiPhotoAcceptSchema>;
 
 export const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/, 'Invalid session id');
 export const analyticsEventsSchema = z.object({

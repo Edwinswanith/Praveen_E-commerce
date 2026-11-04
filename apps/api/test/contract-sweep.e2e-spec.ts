@@ -36,7 +36,8 @@ const fake = (p: string) => FAKE[p] ?? 'cnotarealid000000000000000';
  * - Webhooks without configured credentials answer 503 NOT_CONFIGURED.
  */
 const SESSION_CHECKING_PUBLIC = new Set(['POST /api/v1/auth/refresh', 'POST /api/v1/admin/auth/refresh', 'DELETE /api/v1/campaigns/:slug/remind-me']);
-const IDEMPOTENT_DELETE = new Set(['DELETE /api/v1/wishlist/:productId', 'DELETE /api/v1/admin/cod/blocked-pincodes/:pincode']);
+// Deleting something already gone is success. AI previews: "keep original" must not fail when the preview already expired.
+const IDEMPOTENT_DELETE = new Set(['DELETE /api/v1/wishlist/:productId', 'DELETE /api/v1/admin/cod/blocked-pincodes/:pincode', 'DELETE /api/v1/admin/products/:id/images/ai-previews/:previewId']);
 const NOT_CONFIGURED_OK = new Set(['POST /api/v1/shipping/shiprocket/webhook']);
 
 function discover(app: INestApplication): Route[] {

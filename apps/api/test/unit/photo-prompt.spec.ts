@@ -17,3 +17,20 @@ describe('AI photo prompts', () => {
     expect(buildPhotoPrompt(base, 'STUDIO', { hasReference: true }).prompt).toMatch(/Do not redesign, recolour/);
   });
 });
+
+describe('MARKETPLACE style (main listing image)', () => {
+  it('asks for a pure white background, product only, filling the frame', () => {
+    const { prompt, style } = buildPhotoPrompt(base, 'MARKETPLACE', { hasReference: true });
+    expect(style).toBe('MARKETPLACE');
+    expect(prompt).toMatch(/pure white \(#FFFFFF\)/);
+    expect(prompt).toMatch(/85% of the frame/);
+    expect(prompt).toMatch(/no person/);
+    expect(prompt).not.toMatch(/wearing/);
+    expect(prompt).toMatch(/Reproduce that product EXACTLY/);
+  });
+  it('is allowed for kids products (no model involved)', () => {
+    const r = buildPhotoPrompt({ ...base, gender: 'KIDS' }, 'MARKETPLACE', { hasReference: true });
+    expect(r.style).toBe('MARKETPLACE');
+    expect(r.prompt).not.toMatch(/wearing|young Indian/);
+  });
+});

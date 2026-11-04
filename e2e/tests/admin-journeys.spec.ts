@@ -81,18 +81,59 @@ test('categories: create, edit and delete through the UI', async () => {
   await expect.poll(async () => (await api<{ slug: string }[]>('/categories')).some((c) => c.slug === slug)).toBe(false);
 });
 
-test('AI studio photo requests /api/v1/admin/products/:id/images/generate (no doubled prefix)', async () => {
-  const product = (await api<{ id: string }[]>('/products?pageSize=1'))[0]!;
-  const seen: string[] = [];
-  page.on('request', (r) => { if (r.url().includes('/images/generate')) seen.push(new URL(r.url()).pathname); });
-  // Intercepted: proves the request the browser makes without paying for a Gemini generation.
-  await page.route('**/images/generate', (route) => route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ data: [] }) }));
+test('AI studio photo: preview next to the original, regenerate, keep original, accept (generation intercepted)', async () => {
+  const products = await api<{ id: string; status: string }[]>('/products?pageSize=5');
+  const product = products.find((p) => p.status === 'ACTIVE') ?? products[0]!;
+  const detail = await api<{ images: { id: string; url: string; aiGenerated: boolean }[] }>(`/products/${product.id}`);
+  // A synthetic "phone photo" (real JPEG bytes) uploaded through the dialog: the original the AI must preserve.
+  const phone = Buffer.from('/9j/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAEsAPADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAQF/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AhAI2uAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//Z', 'base64'); // 240×300 JPEG
+  const seen: { method: string; path: string; body: unknown }[] = [];
+  page.on('request', (r) => { if (r.url().includes('/ai-previews')) seen.push({ method: r.method(), path: new URL(r.url()).pathname, body: r.postDataJSON() }); });
+  // Only the paid Gemini generation and the accept of that fake preview are intercepted; "keep original" hits the real API.
+  // A tiny real WebP so the browser actually renders the preview image.
+  const webp = 'data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA';
+  let n = 0;
+  await page.route('**/images/ai-previews', (route) => route.request().method() !== 'POST' ? route.continue() : route.fulfill({
+    status: 201, contentType: 'application/json',
+    body: JSON.stringify({ data: { previewId: `e2e-preview-${++n}`, dataUrl: webp, width: 896, height: 1120, bytes: 40960, style: 'MARKETPLACE', color: 'Black', edgeWhiteRatio: 0.99, expiresAt: new Date(Date.now() + 1_800_000).toISOString(), source: { id: real.id, url: real.url, thumbUrl: real.url, width: 800, height: 1000 } } }),
+  }));
+  await page.route('**/ai-previews/*/accept', (route) => route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ data: { id: 'x', url: real.url, thumbUrl: real.url, alt: '', color: null, sortOrder: 0, width: 1, height: 1, aiGenerated: true, sourceImageId: real.id } }) }));
   await page.goto(`${ADMIN}/products/${product.id}`);
   await page.getByRole('button', { name: /ai studio photo/i }).click();
-  await page.getByRole('dialog').getByRole('button', { name: /generate/i }).click();
-  await expect.poll(() => seen.length).toBe(1);
-  expect(seen[0]).toBe(`/api/v1/admin/products/${product.id}/images/generate`);
-  await page.unroute('**/images/generate');
+  const dlg = page.getByRole('dialog');
+  if (product.status === 'ACTIVE' && !detail.images.some((i) => !i.aiGenerated)) {
+    // Rule 15: a live product's AI photos need a real photo, so generation waits for one.
+    await expect(dlg.getByRole('button', { name: /generate preview/i })).toBeDisabled();
+  }
+  await dlg.getByLabel('Upload original product photo').setInputFiles({ name: 'phone.jpg', mimeType: 'image/jpeg', buffer: phone });
+  await expect.poll(async () => (await api<{ images: unknown[] }>(`/products/${product.id}`)).images.length).toBe(detail.images.length + 1);
+  const withReal = await api<{ images: { id: string; url: string; aiGenerated: boolean }[] }>(`/products/${product.id}`);
+  const real = withReal.images.find((i) => !detail.images.some((d) => d.id === i.id))!;
+  await expect(dlg.getByRole('radio', { name: /use photo/i }).last()).toHaveAttribute('aria-checked', 'true');
+  await dlg.getByRole('button', { name: /generate preview/i }).click();
+  await expect(dlg.getByAltText('AI-generated preview')).toBeVisible();
+  await expect(dlg.getByAltText('Original photo')).toHaveAttribute('src', real.url);
+  await expect(dlg.getByText(/White background: suitable/)).toBeVisible();
+  await expect.poll(async () => dlg.getByAltText('AI-generated preview').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  expect(seen[0]).toMatchObject({ method: 'POST', path: `/api/v1/admin/products/${product.id}/images/ai-previews`, body: { style: 'MARKETPLACE', sourceImageId: real.id } });
+
+  await dlg.getByRole('button', { name: /regenerate/i }).click();
+  await expect.poll(() => seen.some((s) => s.method === 'DELETE' && s.path.endsWith('/ai-previews/e2e-preview-1'))).toBe(true);
+  await dlg.getByRole('button', { name: /keep original/i }).click();
+  await expect(dlg).toBeHidden();
+  await expect.poll(() => seen.some((s) => s.method === 'DELETE' && s.path.endsWith('/ai-previews/e2e-preview-2'))).toBe(true);
+  expect((await api<{ images: unknown[] }>(`/products/${product.id}`)).images).toHaveLength(detail.images.length + 1); // only the uploaded original
+
+  await page.getByRole('button', { name: /ai studio photo/i }).click();
+  await dlg.getByRole('button', { name: /generate preview/i }).click();
+  await dlg.getByRole('button', { name: /use this photo/i }).click();
+  await expect(dlg).toBeHidden();
+  expect(seen.find((s) => s.path.endsWith('/accept'))).toMatchObject({ method: 'POST', path: `/api/v1/admin/products/${product.id}/images/ai-previews/e2e-preview-3/accept`, body: { placement: 'PRIMARY' } });
+  await page.unroute('**/images/ai-previews');
+  await page.unroute('**/ai-previews/*/accept');
+  // Remove the uploaded test photo so the seeded catalogue is unchanged.
+  const del = await page.request.delete(`${API}/api/v1/admin/products/${product.id}/images/${real.id}`, { headers: H });
+  expect(del.ok()).toBeTruthy();
 });
 
 test('reviews: hide with a reason, then restore', async () => {

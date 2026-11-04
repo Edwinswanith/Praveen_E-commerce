@@ -12,8 +12,10 @@ import { Select } from '@/components/ui/controls';
 const MAX_IMAGE_MB = 10;
 const MAX_VIDEO_MB = 50;
 
-export function MediaManager({ productId, images, videos, colours, onChanged, canWrite }: {
+export function MediaManager({ productId, images, videos, colours, onChanged, canWrite, live = false }: {
   productId: string; images: ProductImageDto[]; videos: ProductVideoDto[]; colours: string[]; onChanged: () => void; canWrite: boolean;
+  /** ACTIVE product: AI photos need a real source photo. */
+  live?: boolean;
 }) {
   const confirm = useConfirm();
   const [order, setOrder] = React.useState<ProductImageDto[]>([]);
@@ -22,6 +24,7 @@ export function MediaManager({ productId, images, videos, colours, onChanged, ca
   const [uploadColour, setUploadColour] = React.useState('');
   const [videoUploading, setVideoUploading] = React.useState(false);
   const [aiOpen, setAiOpen] = React.useState(false);
+  const [aiSource, setAiSource] = React.useState<string | undefined>();
   const fileRef = React.useRef<HTMLInputElement>(null);
   const videoRef = React.useRef<HTMLInputElement>(null);
 
@@ -153,10 +156,10 @@ export function MediaManager({ productId, images, videos, colours, onChanged, ca
           </Select>
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="sr-only" id="img-upload" onChange={(e) => void upload(e.target.files)} />
           <Button type="button" size="sm" variant="outline" loading={uploading} onClick={() => fileRef.current?.click()}>Choose images</Button>
-          <Button type="button" size="sm" variant="secondary" onClick={() => setAiOpen(true)}><Sparkles /> AI studio photo</Button>
+          <Button type="button" size="sm" variant="secondary" onClick={() => { setAiSource(undefined); setAiOpen(true); }}><Sparkles /> AI studio photo</Button>
         </div>
       )}
-      {canWrite && <AiPhotoDialog productId={productId} images={order} colours={colours} open={aiOpen} onOpenChange={setAiOpen} onDone={onChanged} />}
+      {canWrite && <AiPhotoDialog productId={productId} images={order} colours={colours} open={aiOpen} onOpenChange={setAiOpen} onDone={onChanged} live={live} initialSourceId={aiSource} />}
 
       {order.length === 0 ? (
         <p className="text-sm text-muted">No images yet. The first image is used as the product thumbnail.</p>
@@ -185,7 +188,10 @@ export function MediaManager({ productId, images, videos, colours, onChanged, ca
                       <Button type="button" variant="ghost" size="sm" disabled={i === 0} onClick={() => move(img.id, -1)} aria-label="Move earlier"><ArrowLeft /></Button>
                       <Button type="button" variant="ghost" size="sm" disabled={i === order.length - 1} onClick={() => move(img.id, 1)} aria-label="Move later"><ArrowRight /></Button>
                     </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => void removeImage(img)} aria-label="Delete image"><Trash2 /></Button>
+                    <div className="flex">
+                      {!img.aiGenerated && <Button type="button" variant="ghost" size="sm" onClick={() => { setAiSource(img.id); setAiOpen(true); }} aria-label={`Enhance with AI: ${img.alt || 'photo'}`} title="Enhance with AI"><Sparkles /></Button>}
+                      <Button type="button" variant="ghost" size="sm" onClick={() => void removeImage(img)} aria-label="Delete image"><Trash2 /></Button>
+                    </div>
                   </div>
                 </ImageMeta>
               ) : (

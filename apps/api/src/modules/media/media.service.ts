@@ -17,6 +17,24 @@ export function sniffVideo(buf: Buffer): 'video/mp4' | 'video/webm' | null {
 
 export interface ProcessedImage { buffer: Buffer; thumb: Buffer; width: number; height: number; hash: string; bytes: number }
 
+/**
+ * Share of border pixels that are near-white (every channel >= 245). Marketplace
+ * main images need a pure white background; this lets staff see whether the AI
+ * delivered one before accepting it.
+ */
+export async function edgeWhiteRatio(image: Buffer): Promise<number> {
+  const W = 80, H = 100, B = 3;
+  const { data } = await sharp(image).flatten({ background: '#ffffff' }).resize(W, H, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  let edge = 0, white = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (x >= B && x < W - B && y >= B && y < H - B) continue;
+    const o = (y * W + x) * 3;
+    edge++;
+    if (data[o]! >= 245 && data[o + 1]! >= 245 && data[o + 2]! >= 245) white++;
+  }
+  return Math.round((white / edge) * 1000) / 1000;
+}
+
 @Injectable()
 export class MediaService {
   constructor(private readonly storage: StorageService) {}
