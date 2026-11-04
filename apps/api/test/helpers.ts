@@ -1,5 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { appendFileSync } from 'node:fs';
+import type { Request, Response } from 'express';
 import type { ProductInput } from '@vyra/shared';
 import { createApp } from '../src/bootstrap';
 import { PrismaService } from '../src/common/prisma/prisma.service';
@@ -8,8 +10,26 @@ import { ROLE_PERMISSIONS } from '../src/modules/roles/permissions';
 
 export const PASSWORD = 'Passw0rd!x';
 
+/**
+ * Test-only route coverage recorder: when ROUTE_COVERAGE_FILE is set, every
+ * request records its matched route pattern, status and the test that sent it,
+ * so the API verification matrix is built from observed runtime behaviour.
+ */
+function recordCoverage(app: INestApplication) {
+  const file = process.env.ROUTE_COVERAGE_FILE;
+  if (!file) return;
+  app.use((req: Request & { route?: { path: string } }, res: Response, next: () => void) => {
+    res.on('finish', () => {
+      const st = expect.getState();
+      appendFileSync(file, JSON.stringify({ m: req.method, r: req.route?.path ?? null, u: req.originalUrl.split('?')[0], s: res.statusCode, f: st.testPath?.split('/').pop(), t: st.currentTestName }) + '\n');
+    });
+    next();
+  });
+}
+
 export async function bootApp() {
   const app = await createApp();
+  recordCoverage(app);
   await app.init();
   const prisma = app.get(PrismaService);
   await resetDb(prisma);

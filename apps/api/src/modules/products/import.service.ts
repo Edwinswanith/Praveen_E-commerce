@@ -26,7 +26,9 @@ export class ProductImportService {
 
   template() {
     const example = ['oversized-cotton-tee', 'Oversized Cotton Tee', '240 GSM combed cotton, drop shoulders, relaxed fit.', 'VYRA', 'MEN', 'men-tshirts', 'DRAFT', 'oversized|streetwear', '100% Cotton', 'Oversized', 'Casual', 'Solid', 'Short sleeve', 'Round neck', 'Machine wash cold', '6109', 'Black', '#111111', 'M', '1299', '799', '320', '260', '20'];
-    return `${IMPORT_COLUMNS.join(',')}\n${example.join(',')}\n`;
+    // RFC 4180: quote fields containing commas, quotes or newlines (the example description has commas).
+    const cell = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    return `${IMPORT_COLUMNS.join(',')}\n${example.map(cell).join(',')}\n`;
   }
 
   async parseFile(buf: Buffer, filename: string): Promise<Row[]> {

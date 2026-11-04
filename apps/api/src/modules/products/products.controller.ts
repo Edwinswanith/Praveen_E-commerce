@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, StreamableFile, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -153,9 +153,10 @@ export class AdminProductsController {
     return paginated(items, total, q.page, q.pageSize);
   }
 
-  @RequirePermissions('catalog:read') @Get('import/template') @Header('content-type', 'text/csv') @Header('content-disposition', 'attachment; filename="vyra-product-import-template.csv"')
+  @RequirePermissions('catalog:read') @Get('import/template')
   template() {
-    return this.importer.template();
+    // Content type is set on the file itself, so error responses stay JSON.
+    return new StreamableFile(Buffer.from(this.importer.template()), { type: 'text/csv; charset=utf-8', disposition: 'attachment; filename="vyra-product-import-template.csv"' });
   }
 
   @RequirePermissions('catalog:write') @Post('import') @HttpCode(200) @ApiConsumes('multipart/form-data')

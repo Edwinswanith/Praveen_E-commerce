@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, HttpCode, Param, Patch, Post, Query, Res, StreamableFile } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Res, StreamableFile } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import ExcelJS from 'exceljs';
@@ -90,7 +90,7 @@ export class BarcodesController {
     return new StreamableFile(await this.barcodes.png(variantId, sym), { type: 'image/png' });
   }
 
-  @RequirePermissions('inventory:read') @Post('barcodes/labels') @HttpCode(200) @Header('content-type', 'application/pdf')
+  @RequirePermissions('inventory:read') @Post('barcodes/labels') @HttpCode(200)
   async labels(@Body(new ZodPipe(barcodeLabelsSchema)) body: z.infer<typeof barcodeLabelsSchema>) {
     return new StreamableFile(await this.barcodes.labelsPdf(body.items, body.format, body.symbology), { type: 'application/pdf', disposition: 'inline; filename="vyra-labels.pdf"' });
   }
