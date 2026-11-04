@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Queue, Worker, type Job, type JobsOptions, type Processor } from 'bullmq';
 import IORedis from 'ioredis';
 import { ENV, type Env } from '../../config/env';
+import { reportError } from '../monitoring/monitoring';
 
 /**
  * Thin BullMQ wrapper. When QUEUES_ENABLED=false (tests) jobs run inline via the
@@ -68,7 +69,11 @@ export class QueueService implements OnModuleDestroy {
     this.inline.set(name, processor);
     if (!this.connection || !this.env.RUN_WORKERS_IN_API && !process.env.VYRA_WORKER) return;
     const w = new Worker(name, processor, { connection: this.connection.duplicate(), concurrency });
-    w.on('failed', (job, err) => this.logger.warn(`${name}/${job?.name} failed (attempt ${job?.attemptsMade}): ${err.message}`));
+    w.on('failed', (job, err) => {
+      this.logger.warn(`${name}/${job?.name} failed (attempt ${job?.attemptsMade}): ${err.message}`);
+      // Out of retries: the job is now only visible in the failed set, so report it.
+      if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) reportError(err, { queue: name, job: job.name, jobId: job.id, attempts: job.attemptsMade });
+    });
     this.workers.push(w);
   }
 

@@ -34,6 +34,7 @@ export function initMonitoring(dsn: string | undefined, release: string, environ
   }
 }
 
-export function reportError(error: unknown, context: { requestId?: string; path?: string; status?: number }) {
-  sentry?.captureException(error, { tags: { requestId: context.requestId, status: String(context.status ?? '') }, extra: { path: context.path } });
+export function reportError(error: unknown, context: { requestId?: string; path?: string; status?: number; [key: string]: unknown }) {
+  const { requestId, status, ...extra } = context;
+  sentry?.captureException(error, { tags: { requestId, status: String(status ?? '') }, extra });
 }

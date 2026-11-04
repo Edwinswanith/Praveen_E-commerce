@@ -2,6 +2,9 @@ name: CI
 on:
   push: { branches: [main] }
   pull_request:
+  workflow_dispatch:
+  # Nightly full run (unit + integration + contract sweep + browser journeys) at 02:00 IST.
+  schedule: [{ cron: '30 20 * * *' }]
 
 jobs:
   verify:
@@ -23,6 +26,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      # Dependency gate: fail on critical advisories (high ones are tracked in docs/verification/SECURITY_REPORT.md).
+      - run: pnpm audit --prod --audit-level=critical
       - run: apps/api/scripts/check-migrations.sh
       - run: pnpm --filter @vyra/shared build
       - run: pnpm --filter @vyra/api exec prisma migrate deploy

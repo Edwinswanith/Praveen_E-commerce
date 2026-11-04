@@ -49,8 +49,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     if (status >= 500) {
-      this.logger.error({ requestId, path: req.url, err: exception instanceof Error ? exception.stack : exception });
-      reportError(exception, { requestId, path: req.url.split('?')[0], status });
+      // Path only: query strings can carry PII (e.g. /orders/track?phone=…).
+      const path = req.url.split('?')[0];
+      this.logger.error({ requestId, path, err: exception instanceof Error ? exception.stack : exception });
+      reportError(exception, { requestId, path, status });
     }
     res.status(status).json({ error: { code, message, ...(details !== undefined ? { details } : {}), requestId } });
   }
