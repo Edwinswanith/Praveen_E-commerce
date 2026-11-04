@@ -76,17 +76,17 @@ export function CustomerDetail({ id }: { id: string }) {
         <StatCard label="Last order" value={<span className="text-lg">{formatDate(lastOrderAt)}</span>} />
       </div>
       <div className="grid gap-5 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <h2 className="mb-2 text-sm font-bold">Orders</h2>
           <DataTable columns={orderCols} data={orders} getRowId={(o) => o.id} onRowClick={(o) => router.push(`/orders/${o.id}`)} empty={{ title: 'No orders yet' }} />
         </div>
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <CustomerNotesCard customerId={c.id} notes={c.notes} canWrite={can(PERM.customersWrite)} onSaved={() => void mutate()} />
           <Card>
             <CardHeader><CardTitle>Profile</CardTitle></CardHeader>
             <CardContent>
               <KeyValue items={[
-                { label: 'Email', value: c.email ? <span className="flex flex-wrap items-center gap-1.5">{c.email}<Badge tone={c.emailVerified ? 'success' : 'warning'}>{c.emailVerified ? 'Verified' : 'Unverified'}</Badge></span> : <span className="text-muted">None (phone-only account)</span> },
+                { label: 'Email', value: c.email ? <span className="flex min-w-0 flex-wrap items-center gap-1.5"><span className="min-w-0 break-all">{c.email}</span><Badge tone={c.emailVerified ? 'success' : 'warning'}>{c.emailVerified ? 'Verified' : 'Unverified'}</Badge></span> : <span className="text-muted">None (phone-only account)</span> },
                 { label: 'Phone', value: c.phone ?? '—' },
                 { label: 'Joined', value: formatDate(c.createdAt) },
                 { label: 'Last login', value: formatDateTime(c.lastLoginAt) },
