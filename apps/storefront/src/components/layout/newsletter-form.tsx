@@ -9,9 +9,12 @@ const emailSchema = z.string().trim().toLowerCase().email('Enter a valid email a
 
 export function NewsletterForm({
   tone = 'light',
+  source = 'footer',
   className,
 }: {
   tone?: 'light' | 'dark';
+  /** Where the form is (stored with the consent record): lowercase letters, digits, - or _. */
+  source?: string;
   className?: string;
 }) {
   const [email, setEmail] = React.useState('');
@@ -30,10 +33,11 @@ export function NewsletterForm({
     }
     setState({ status: 'loading' });
     try {
-      await api('/newsletter', { method: 'POST', body: { email: parsed.data } });
+      // Double opt-in: nothing is sent to this address until they click the emailed link.
+      await api('/newsletter', { method: 'POST', body: { email: parsed.data, source } });
       setState({
         status: 'done',
-        message: 'You’re on the list. Watch your inbox for early access drops.',
+        message: 'Check your inbox to confirm your subscription.',
       });
       setEmail('');
     } catch (err) {

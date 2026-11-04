@@ -13,7 +13,7 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
         ref={ref}
         aria-invalid={invalid || undefined}
         className={cn(
-          'h-10 w-full appearance-none rounded-md border border-border-strong bg-bg pl-3 pr-8 text-sm text-fg focus:border-fg focus:outline-none disabled:bg-surface',
+          'h-10 w-full appearance-none rounded-md max-sm:h-11 border border-border-strong bg-bg pl-3 pr-8 text-sm text-fg focus:border-fg focus:outline-none disabled:bg-surface',
           invalid && 'border-danger',
         )}
         {...props}
@@ -93,7 +93,7 @@ export function Segmented<T extends string>({ value, onChange, options, label, s
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
           className={cn(
-            'rounded-[7px] font-medium text-muted transition-colors hover:text-fg',
+            'whitespace-nowrap rounded-[7px] font-medium text-muted transition-colors hover:text-fg max-sm:min-h-11',
             size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
             value === o.value && 'bg-bg text-fg shadow-sm ring-1 ring-border',
           )}

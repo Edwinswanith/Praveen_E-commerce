@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Shirt, FolderTree, Boxes, History, Truck, ClipboardList, Barcode, ScanLine,
   ShoppingBag, Undo2, Users, TicketPercent, BarChart3, Settings, Banknote, Filter, Megaphone,
+  MessageSquareText, Mail,
 } from 'lucide-react';
 import { PERM } from '@/lib/permissions';
 
@@ -15,6 +16,7 @@ export const NAV: NavGroup[] = [
     items: [
       { href: '/products', label: 'Products', icon: Shirt, perm: PERM.catalogRead },
       { href: '/categories', label: 'Categories', icon: FolderTree, perm: PERM.catalogRead },
+      { href: '/reviews', label: 'Reviews', icon: MessageSquareText, perm: PERM.reviewsModerate },
     ],
   },
   {
@@ -35,6 +37,7 @@ export const NAV: NavGroup[] = [
       { href: '/returns', label: 'Returns', icon: Undo2, perm: PERM.ordersRead },
       { href: '/cod', label: 'COD & RTO', icon: Banknote, perm: PERM.ordersRead },
       { href: '/customers', label: 'Customers', icon: Users, perm: PERM.customersRead },
+      { href: '/newsletter', label: 'Newsletter', icon: Mail, perm: PERM.customersRead },
       { href: '/campaigns', label: 'Campaigns', icon: Megaphone, perm: PERM.promotionsRead },
       { href: '/promotions', label: 'Promotions', icon: TicketPercent, perm: PERM.promotionsRead },
     ],

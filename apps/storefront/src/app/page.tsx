@@ -78,7 +78,7 @@ export default async function HomePage() {
             Early access to new collections, members-only offers and style notes. No spam,
             unsubscribe anytime.
           </p>
-          <NewsletterForm className="mt-6 max-w-md" />
+          <NewsletterForm source="home" className="mt-6 max-w-md" />
         </div>
       </section>
     </Container>

@@ -15,7 +15,9 @@ const DEFAULT_RESEND_SECONDS = 30;
 
 function maskPhone(phone: string): string {
   const d = phone.replace(/\D/g, '').slice(-10);
-  return d.length === 10 ? `+91 ${d.slice(0, 2)}******${d.slice(-2)}` : 'your mobile';
+  if (d.length === 10) return `+91 ${d.slice(0, 2)}******${d.slice(-2)}`;
+  // Guest tracking only gets the last digits ("••••••••10").
+  return d.length >= 2 && phone.includes('•') ? `your mobile ending in ${d.slice(-2)}` : 'your mobile';
 }
 
 function initialWait(hint: CodOtpHint | null): number {

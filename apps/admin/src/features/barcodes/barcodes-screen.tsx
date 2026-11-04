@@ -4,8 +4,12 @@ import { toast } from 'sonner';
 import type { BarcodeSymbology, InventoryRowDto } from '@vyra/shared';
 import { barcodeLabelsSchema } from '@vyra/shared';
 import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Field } from '@vyra/ui';
-import { Barcode, Printer, Trash2 } from 'lucide-react';
-import { errorMessage } from '@/lib/api';
+import { Barcode, Printer, Trash2, WandSparkles } from 'lucide-react';
+import { api, errorMessage } from '@/lib/api';
+import { useAuth } from '@/features/auth/auth-context';
+import { PERM } from '@/lib/permissions';
+import { useConfirm } from '@/components/ui/confirm';
+import type { GenerateMissingBarcodesResult } from '@/lib/types';
 import { openFile } from '@/lib/download';
 import { formatNumber } from '@/lib/format';
 import { PageHeader } from '@/components/ui/feedback';
@@ -14,9 +18,38 @@ import { VariantPicker } from '@/features/inventory/variant-picker';
 import { BarcodeImage } from './barcode-image';
 
 interface Line { row: InventoryRowDto; copies: string }
+
+export function generatedMessage(n: number): string {
+  return n === 0 ? 'All variants already have barcodes' : `${formatNumber(n)} barcode${n === 1 ? '' : 's'} created`;
+}
+
+/** POST /admin/barcodes/generate-missing (catalog:write): issues an EAN-13 for every variant that has none. */
+export function GenerateMissingButton() {
+  const confirm = useConfirm();
+  const [pending, setPending] = React.useState(false);
+  const run = async () => {
+    const ok = await confirm({
+      title: 'Create missing barcodes?',
+      description: 'Every variant without an EAN-13 barcode gets a new one issued by the server. Existing barcodes are never changed, so printed labels stay valid.',
+      confirmLabel: 'Create barcodes',
+    });
+    if (!ok) return;
+    setPending(true);
+    try {
+      const r = await api.post<GenerateMissingBarcodesResult>('/barcodes/generate-missing');
+      toast.success(generatedMessage(r.generated));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setPending(false);
+    }
+  };
+  return <Button variant="outline" size="sm" className="max-sm:h-11" loading={pending} onClick={() => void run()}><WandSparkles /> Generate missing barcodes</Button>;
+}
 type Format = 'A4_3x8' | 'THERMAL_50x25';
 
 export function BarcodesScreen() {
+  const { can } = useAuth();
   const [lines, setLines] = React.useState<Line[]>([]);
   const [format, setFormat] = React.useState<Format>('A4_3x8');
   const [symbology, setSymbology] = React.useState<BarcodeSymbology>('EAN13');
@@ -45,9 +78,10 @@ export function BarcodesScreen() {
 
   return (
     <>
-      <PageHeader title="Barcode labels" description="Print price/barcode labels for received stock. Codes are issued by the server per variant." actions={
-        <Button size="sm" disabled={!lines.length} loading={printing} onClick={() => void print()}><Printer /> Print {formatNumber(total)} label{total === 1 ? '' : 's'}</Button>
-      } />
+      <PageHeader title="Barcode labels" description="Print price/barcode labels for received stock. Codes are issued by the server per variant." actions={<>
+        {can(PERM.catalogWrite) && <GenerateMissingButton />}
+        <Button size="sm" className="max-sm:h-11" disabled={!lines.length} loading={printing} onClick={() => void print()}><Printer /> Print {formatNumber(total)} label{total === 1 ? '' : 's'}</Button>
+      </>} />
       <div className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle>Variants</CardTitle><span className="text-xs text-muted">{lines.length} selected</span></CardHeader>

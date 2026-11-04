@@ -65,7 +65,7 @@ export function Footer({ categories }: { categories: NavCategory[] }) {
           <h2 className="mt-6 text-xs font-bold uppercase tracking-widest text-white/90">
             Get early access
           </h2>
-          <NewsletterForm tone="dark" className="mt-3" />
+          <NewsletterForm tone="dark" source="footer" className="mt-3" />
         </div>
         {cols.map((c) => (
           <div key={c.title}>

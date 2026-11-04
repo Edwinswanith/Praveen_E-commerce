@@ -272,16 +272,35 @@ export function PaymentLine({ order }: { order: OrderDetailDto }) {
   );
 }
 
+/** Guest tracking masks the street and phone with "•" (e.g. phone "••••••••10"). */
+const isMasked = (v: string | null | undefined) => !!v && v.includes('•');
+
 export function ShippingAddress({ order }: { order: OrderDetailDto }) {
   const a = order.shippingAddress;
+  const masked = isMasked(a.line1) || isMasked(a.phone);
+  const street = [a.line1, a.line2, a.landmark].filter((v) => v && !isMasked(v)).join(', ');
+  const phoneTail = isMasked(a.phone) ? a.phone.replace(/\D/g, '') : '';
   return (
-    <div className="text-sm">
+    <div className="text-sm" data-testid="shipping-address">
       <p className="font-semibold">{a.fullName}</p>
-      <p className="text-muted">{[a.line1, a.line2, a.landmark].filter(Boolean).join(', ')}</p>
+      {street && <p className="break-words text-muted">{street}</p>}
       <p className="text-muted">
-        {a.city}, {a.state} — {a.pincode}
+        {a.city}, {a.state} {a.pincode}
       </p>
-      <p className="text-muted">{a.phone}</p>
+      {a.phone && (
+        <p className="text-muted">
+          {isMasked(a.phone) ? (phoneTail ? `Phone ending in ${phoneTail}` : null) : a.phone}
+        </p>
+      )}
+      {masked && (
+        <p className="mt-2 text-xs text-muted" data-testid="address-masked-note">
+          For your privacy, the street address and contact details are hidden here.{' '}
+          <Link href="/login?next=%2Faccount%2Forders" className="font-semibold text-brand-600 hover:underline">
+            Sign in
+          </Link>{' '}
+          to see them.
+        </p>
+      )}
     </div>
   );
 }

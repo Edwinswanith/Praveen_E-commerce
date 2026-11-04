@@ -24,6 +24,7 @@ import { Dialog, Sheet } from '@/components/ui/dialog';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu';
 import { MovementForm } from './movement-form';
 import { movementColumns } from './movement-history';
+import { ReconcileCard } from './reconcile-card';
 
 function readSummary(extra: Record<string, unknown> | undefined, meta: unknown): InventorySummary | null {
   const candidate = (extra?.summary ?? (meta as { summary?: unknown } | undefined)?.summary) as InventorySummary | undefined;
@@ -114,6 +115,7 @@ export function InventoryScreen() {
           </>
         ) : data ? null : <Skeleton className="col-span-full h-20" />}
       </section>
+      {can(PERM.inventoryRead) && <ReconcileCard />}
       <DataTable
         columns={columns}
         data={data}

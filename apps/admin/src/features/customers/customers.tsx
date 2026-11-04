@@ -11,6 +11,7 @@ import { useUrlState } from '@/hooks/use-url-state';
 import { useAuth } from '@/features/auth/auth-context';
 import { PERM } from '@/lib/permissions';
 import { CodBlockButton } from '@/features/cod/cod-block';
+import { CustomerNotesCard } from './customer-notes';
 import { formatDate, formatDateTime, formatINR, formatNumber } from '@/lib/format';
 import { ORDER_STATUS_LABEL, ORDER_STATUS_TONE } from '@/lib/status';
 import { DataTable } from '@/components/data-table/data-table';
@@ -80,6 +81,7 @@ export function CustomerDetail({ id }: { id: string }) {
           <DataTable columns={orderCols} data={orders} getRowId={(o) => o.id} onRowClick={(o) => router.push(`/orders/${o.id}`)} empty={{ title: 'No orders yet' }} />
         </div>
         <div className="space-y-5">
+          <CustomerNotesCard customerId={c.id} notes={c.notes} canWrite={can(PERM.customersWrite)} onSaved={() => void mutate()} />
           <Card>
             <CardHeader><CardTitle>Profile</CardTitle></CardHeader>
             <CardContent>

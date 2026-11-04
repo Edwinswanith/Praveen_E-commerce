@@ -128,7 +128,7 @@ export function SaleView({
 
       {!shopNow && (
         <div className="grid gap-4 md:grid-cols-2">
-          <RemindMe campaign={c} onSubscribed={() => void mutate()} />
+          <RemindMe campaign={c} onChange={() => void mutate()} />
           <div className="space-y-4">
             <Schedule campaign={c} />
             <Offers campaign={c} />

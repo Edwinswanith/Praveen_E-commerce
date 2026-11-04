@@ -62,7 +62,9 @@ export function TrackOrder() {
       setError(
         e instanceof ApiError && e.status === 404
           ? 'We couldn’t find an order with that number and email or phone.'
-          : errorMessage(e),
+          : e instanceof ApiError && e.status === 429
+            ? e.message || 'Too many tracking attempts. Please wait and try again, or sign in to see your orders.'
+            : errorMessage(e),
       );
     }
   });

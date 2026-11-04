@@ -25,7 +25,7 @@ export function SearchInput({ value, onChange, placeholder = 'Search…', classN
         onChange={(e) => setLocal(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') onChange(local); }}
         placeholder={placeholder}
-        className="h-9 w-full rounded-md border border-border-strong bg-bg pl-9 pr-8 text-sm placeholder:text-subtle focus:border-fg focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+        className="h-11 w-full rounded-md sm:h-9 border border-border-strong bg-bg pl-9 pr-8 text-sm placeholder:text-subtle focus:border-fg focus:outline-none [&::-webkit-search-cancel-button]:hidden"
       />
       {local && (
         <button type="button" onClick={() => { setLocal(''); onChange(''); }} aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-subtle hover:text-fg">

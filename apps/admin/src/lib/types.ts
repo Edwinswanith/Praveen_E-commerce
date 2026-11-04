@@ -67,3 +67,10 @@ export interface CampaignBulkResultDto {
   applied: number;
   skippedBelowCost: number;
 }
+
+/** GET /admin/inventory/reconcile (not in @vyra/shared). CLAUDE.md rule 14: must always be consistent. */
+export interface StockDrift { variantId: string; sku: string; onHand: number; ledgerOnHand: number; reserved: number; ledgerReserved: number }
+export interface ReconcileResult { checkedVariants: number; consistent: boolean; drift: StockDrift[]; checkedAt: string }
+
+/** POST /admin/barcodes/generate-missing (not in @vyra/shared). */
+export interface GenerateMissingBarcodesResult { generated: number }
