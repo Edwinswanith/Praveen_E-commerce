@@ -54,7 +54,9 @@ export class AuthController {
     const raw = req.cookies?.[COOKIE.customer.refresh];
     const rotated = raw ? await this.tokens.rotate(raw, 'customer', meta(req)) : null;
     if (!rotated) {
-      this.tokens.clearCookies(res, 'customer');
+      // Only clear cookies we were actually sent: a guest's cookieless refresh probe must not wipe a
+      // session that a parallel login (another tab or request) has just set.
+      if (raw) this.tokens.clearCookies(res, 'customer');
       throw unauthorized('Session expired');
     }
     this.tokens.setCookies(res, 'customer', rotated);
@@ -122,7 +124,9 @@ export class StaffAuthController {
     const raw = req.cookies?.[COOKIE.staff.refresh];
     const rotated = raw ? await this.tokens.rotate(raw, 'staff', meta(req)) : null;
     if (!rotated) {
-      this.tokens.clearCookies(res, 'staff');
+      // Only clear cookies we were actually sent: a guest's cookieless refresh probe must not wipe a
+      // session that a parallel login (another tab or request) has just set.
+      if (raw) this.tokens.clearCookies(res, 'staff');
       throw unauthorized('Session expired');
     }
     this.tokens.setCookies(res, 'staff', rotated);

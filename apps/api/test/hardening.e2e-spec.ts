@@ -163,4 +163,27 @@ describe('Security hardening (integration)', () => {
       expect(list.counts.SUBSCRIBED).toBeGreaterThanOrEqual(1);
     });
   });
+
+  describe('session cookies', () => {
+    it('a refresh attempt without a refresh cookie does not clear cookies (it would log out a session set in parallel)', async () => {
+      for (const path of ['/api/v1/auth/refresh', '/api/v1/admin/auth/refresh']) {
+        const r = await request(app.getHttpServer()).post(path).set(H).expect(401);
+        expect(r.headers['set-cookie']).toBeUndefined();
+      }
+    });
+
+    it('a refresh with an invalid refresh cookie still clears the stale cookies', async () => {
+      const r = await request(app.getHttpServer()).post('/api/v1/auth/refresh').set(H).set('Cookie', 'vyra_rt=not-a-real-token').expect(401);
+      expect((r.headers['set-cookie'] as unknown as string[]).some((c) => c.startsWith('vyra_rt=;'))).toBe(true);
+    });
+
+    it('sets httpOnly, SameSite=Lax, path-scoped session cookies', async () => {
+      const r = await request(app.getHttpServer()).post('/api/v1/auth/register').set(H).send({ name: 'Cookie Test', email: 'cookies@test.local', password: 'Passw0rd!x' }).expect(201);
+      const c = r.headers['set-cookie'] as unknown as string[];
+      const at = c.find((x) => x.startsWith('vyra_at='))!;
+      const rt = c.find((x) => x.startsWith('vyra_rt='))!;
+      for (const x of [at, rt]) { expect(x).toMatch(/HttpOnly/i); expect(x).toMatch(/SameSite=Lax/i); }
+      expect(rt).toMatch(/Path=\/api\/v1\/auth/);
+    });
+  });
 });
