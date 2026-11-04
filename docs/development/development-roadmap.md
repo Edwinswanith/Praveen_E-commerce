@@ -1,6 +1,6 @@
 # Development roadmap & status
 
-Last verified: 2026-11-03 (v1.3). Totals: **306 automated tests** (shared 35, API 66 against real Postgres, storefront 92, admin 113) plus **15 Playwright browser tests** (`pnpm e2e`). Typecheck and production builds pass for every package from a clean `--force` build.
+Last verified: 2026-11-04 (verification pass). Totals: **398 automated tests** (shared 40, API 119 against real Postgres incl. a contract sweep over all 178 routes and concurrency invariants, storefront 107, admin 132) plus **29 Playwright browser tests** (`pnpm e2e`). Evidence and open blockers: `docs/verification/` (verdict: NOT READY until provider credentials and deployment controls are verified). Typecheck and production builds pass for every package from a clean `--force` build.
 
 ## Verification performed (beyond unit tests)
 - **Real browser, storefront**: home → category → PDP (variant selector) → add to bag → guest checkout → TEST MODE payment → server signature verification → confirmation. Result in the DB: order `CONFIRMED`, payment `CAPTURED`. No page errors, and no horizontal overflow at 390px.

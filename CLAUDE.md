@@ -56,5 +56,9 @@ Behind an HTTP proxy, Node's fetch needs `NODE_USE_ENV_PROXY=1` (Gemini/Razorpay
 19. **Campaign prices go through `CampaignPricingService`** (cards, PDP, bag, checkout): never read `variant.price` as "the price". Campaign phase is derived from the clock (`computeCampaignPhase`), never a flag a job flips. Offer order: sale price → best bundle → one coupon → prepaid; discounts never take a line below cost (`unitFloor`). Every discount is written to `order_discounts` by source.
 20. **Sale honesty**: sale price < regular ≤ MRP and ≥ cost; MRP-only strike-through; countdowns only to `countdownTo`; a running sale's prices/bundles can only get better; extensions are disclosed (`originalEndsAt`); checkout stops with `PRICE_CHANGED` instead of charging more than the shopper saw.
 
+21. **Money and return transitions are race-safe**: refunds only via `OrdersService.refund` (order row lock, PENDING row before the provider call, one live refund per return enforced by a unique index); return decisions claim their status atomically (`updateMany … where status = expected`). New concurrency-sensitive flows get a test in `apps/api/test/concurrency.e2e-spec.ts`.
+22. **No third party is contacted without proof of consent**: phones are messaged only when verified (`phoneVerifiedAt`); newsletter is double opt-in with signed unsubscribe links. Public lookups that could be guessed (e.g. order tracking) use `AttemptLimiter` cross-IP lockouts and mask PII.
+23. **Every route is covered by the contract sweep** (`apps/api/test/contract-sweep.e2e-spec.ts`): new routes must pass auth/realm/RBAC/CSRF/validation/envelope checks automatically; intentional exceptions are listed in the sweep with a reason. Production config fails fast (`resolveApiUrl`); never default to localhost.
+
 ## Status
-See `docs/development/development-roadmap.md` for the module checklist, known limitations and required external configuration.
+See `docs/development/development-roadmap.md` for the module checklist, known limitations and required external configuration, and `docs/verification/` for the latest verification evidence (matrix, bug fixes, security, performance, readiness).
